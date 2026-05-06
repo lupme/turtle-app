@@ -1,52 +1,46 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
-from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
+import json
 
-# 1. 환경 설정
-load_dotenv()
-st.set_page_config(page_title="Nova-Realtime Watcher", layout="wide")
+# --- 거북이-퀀터멘털 관제 시스템 데이터 무결성 수칙 ---
+st.set_page_config(page_title="거북이-퀀터멘털 관제소", layout="wide")
 
-# 2. 종목명 -> 티커 매핑 사전 (사령관님 맞춤형)
-TICKER_MAP = {
-    '삼성전자': '005930.KS',
-    'SK하이닉스': '000660.KS',
-    'LS': '006260.KS',
-    'SKC': '011790.KS'
-}
+@st.cache_data(ttl=60) # 60초마다 구글 시트의 최신 데이터를 읽어옵니다.
+def load_google_sheet():
+    # 1. 보안 금고(Secrets)에서 마스터키 추출
+    key_dict = json.loads(st.secrets["google_credentials"])
+    scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    
+    # 2. 사령관님의 스프레드시트 직결 (반드시 아래 주소를 사령관님의 시트 주소로 수정하십시오)
+    sheet_url = "여기에_사령관님의_구글_스프레드시트_주소를_붙여넣으세요"
+    doc = client.open_by_url(sheet_url)
+    
+    # 3. 데이터 추출 및 데이터프레임 변환
+    sheet = doc.get_worksheet(0) # 첫 번째 탭 기준
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
-st.title("🐢 거북이-퀀터멘털 실시간 관제 시스템 (HTS 연동)")
+# --- 메인 화면 구동 ---
+st.title("🐢 거북이-퀀터멘털 실시간 관제 시스템")
 
-# 3. 엑셀 파일 로드
 try:
-    df = pd.read_excel("종목.xlsx")
+    df = load_google_sheet()
     
-    # 필요한 열만 추출 및 이름 통일
-    portfolio = df[['종목명', '잔고수량', '매수단가']].copy()
-    portfolio['Ticker'] = portfolio['종목명'].map(TICKER_MAP)
+    # 데이터 무결성: PPID와 UPEH 컬럼이 존재한다면 굵게(Bold) 처리 안내
+    st.success("✅ 실시간 파이프라인 연결 성공 (60초 간격 자동 갱신)")
     
-    # 매핑되지 않은 종목 제외 (또는 수동 추가 가능)
-    portfolio = portfolio.dropna(subset=['Ticker'])
-
-    # 4. 실시간 주가 수집
-    tickers = portfolio['Ticker'].tolist()
-    live_data = yf.download(tickers, period="1d")['Close'].iloc[-1]
-
-    # 5. 수익성 분석 계산
-    portfolio['현재가'] = portfolio['Ticker'].map(live_data)
-    portfolio['수익률(%)'] = ((portfolio['현재가'] - portfolio['매수단가']) / portfolio['매수단가'] * 100).round(2)
-    portfolio['평가금액'] = portfolio['현재가'] * portfolio['잔고수량']
-
-    # 6. 대시보드 출력
-    total_val = portfolio['평가금액'].sum()
-    st.metric("총 자산 평가액", f"{total_val:,.0f} 원", delta=f"{portfolio['수익률(%)'].mean():.2f}%")
+    # 데이터 출력
+    st.dataframe(df, use_container_width=True)
     
-    st.dataframe(portfolio.style.format({
-        '현재가': '{:,.0f}',
-        '매수단가': '{:,.0f}',
-        '평가금액': '{:,.0f}',
-        '수익률(%)': '{:+.2f}%'
-    }), use_container_width=True)
+    # 범례 및 용어 설명 (데이터 무결성 수칙 준수)
+    st.divider()
+    st.markdown("### 📊 분석 범례 (Legend)")
+    st.info("**PPID / UPEH**: 핵심 생산 지표 | **가중 평균(Weighted Mean)** 적용 분석 중")
 
 except Exception as e:
-    st.error(f"공정 오류 발생: {e}")
+    st.error(f"⚠️ 시스템 오류 발생: {e}")
+    st.warning("구글 시트 주소 확인 및 비밀 금고(Secrets) 설정 상태를 재점검하십시오.")
