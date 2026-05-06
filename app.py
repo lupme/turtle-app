@@ -4,44 +4,55 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# --- 거북이-퀀터멘털 관제 시스템 데이터 무결성 수칙 ---
+# --- [거북이-퀀터멘털] 시스템 설정 ---
 st.set_page_config(page_title="거북이-퀀터멘털 관제소", layout="wide")
 
-@st.cache_data(ttl=60) # 60초마다 구글 시트의 최신 데이터를 읽어옵니다.
-def load_google_sheet():
-    # 1. 보안 금고(Secrets)에서 마스터키 추출
+@st.cache_data(ttl=60)
+def load_data():
     key_dict = json.loads(st.secrets["google_credentials"])
     scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     creds = Credentials.from_service_account_info(key_dict, scopes=scopes)
     client = gspread.authorize(creds)
     
-    # 2. 사령관님의 스프레드시트 직결 (반드시 아래 주소를 사령관님의 시트 주소로 수정하십시오)
-    # 19행을 아래와 같이 정확히 수정하십시오.
-    sheet_url = "https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit?gid=0#gid=0"
+    # 사령관님의 주소 (이미 설정된 주소를 그대로 사용하십시오)
+    sheet_url = "https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0"
     doc = client.open_by_url(sheet_url)
-    
-    # 3. 데이터 추출 및 데이터프레임 변환
-    sheet = doc.get_worksheet(0) # 첫 번째 탭 기준
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
+    sheet = doc.get_worksheet(0)
+    return pd.DataFrame(sheet.get_all_records())
 
-# --- 메인 화면 구동 ---
-st.title("🐢 거북이-퀀터멘털 실시간 관제 시스템")
-
+# --- 분석 로직 가동 ---
 try:
-    df = load_google_sheet()
+    df = load_data()
     
-    # 데이터 무결성: PPID와 UPEH 컬럼이 존재한다면 굵게(Bold) 처리 안내
-    st.success("✅ 실시간 파이프라인 연결 성공 (60초 간격 자동 갱신)")
+    st.title("🐢 거북이-퀀터멘털 실시간 관제 시스템")
     
-    # 데이터 출력
-    st.dataframe(df, use_container_width=True)
+    # 1. 데이터 무결성: 핵심 지표 강조 및 색상 적용
+    def highlight_data(val):
+        # 개선 후(수익 등)는 Steel Blue, 기본은 Slate Gray
+        color = '#4682B4' if str(val).startswith('+') else '#6C7A89'
+        return f'color: {color}'
+
+    # 2. 데이터 시각화 (사령관님 지침 준수)
+    st.subheader("📊 실시간 포트폴리오 분석 보고")
     
-    # 범례 및 용어 설명 (데이터 무결성 수칙 준수)
+    # 열 이름이 시트와 정확히 일치해야 합니다. (현재가, 수익률 등)
+    # 데이터프레임 스타일링
+    st.dataframe(df.style.format(precision=0)
+                 .set_properties(**{'font-weight': 'bold'}, subset=['종목명']) # 종목명 강조
+                 .applymap(highlight_data))
+
+    # 3. 데이터 무결성 및 분석 수칙 범례 (Legend) 자동 생성
     st.divider()
-    st.markdown("### 📊 분석 범례 (Legend)")
-    st.info("**PPID / UPEH**: 핵심 생산 지표 | **가중 평균(Weighted Mean)** 적용 분석 중")
+    st.markdown("### 📋 분석 범례 및 데이터 무결성 수칙")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**[데이터 규격]**")
+        st.write("- **Slate Gray (108,122,137)**: 일반/개선 전 데이터")
+        st.write("- **Steel Blue (70,130,180)**: 핵심/개선 후 데이터")
+    with col2:
+        st.write("**[분석 공식]**")
+        st.write("- **가중 평균(Weighted Mean)**: $\sum (수익률 \\times 비중)$")
+        st.write("- **핵심 관리**: **PPID**, **UPEH** 지표 상시 모니터링 중")
 
 except Exception as e:
-    st.error(f"⚠️ 시스템 오류 발생: {e}")
-    st.warning("구글 시트 주소 확인 및 비밀 금고(Secrets) 설정 상태를 재점검하십시오.")
+    st.error(f"❌ 시스템 통신 오류: {e}")
