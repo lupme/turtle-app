@@ -16,7 +16,8 @@ def load_google_sheet():
     client = gspread.authorize(creds)
     
     # 2. 사령관님의 스프레드시트 직결 (반드시 아래 주소를 사령관님의 시트 주소로 수정하십시오)
-    sheet_url = "nova-bot@project-nova-495312.iam.gserviceaccount.com"
+    # 19행을 아래와 같이 정확히 수정하십시오.
+    sheet_url = "https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit?gid=0#gid=0"
     doc = client.open_by_url(sheet_url)
     
     # 3. 데이터 추출 및 데이터프레임 변환
