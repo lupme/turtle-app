@@ -7,7 +7,6 @@ import json
 # --- [1] 전술적 UI/UX 환경 설정 (다크 테마 최적화) ---
 st.set_page_config(page_title="거북이-퀀터멘털 관제소", layout="wide")
 
-# McKinsey 스타일의 세련된 디자인을 위한 CSS 주입
 st.markdown("""
     <style>
     /* 메인 배경 및 텍스트 설정 */
@@ -59,14 +58,20 @@ def load_data():
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', ''), errors='coerce').fillna(0)
     return sheet, df
 
-# --- [2] 지능형 시각화 엔진 (Steel Blue / Slate Gray) ---
-def apply_commander_design(styled_df):
+# --- [2] 지능형 시각화 엔진 (Pandas 호환성 보정 완료) ---
+def apply_commander_design(df_subset):
     def color_logic(val):
         try:
             n = float(str(val).replace('%', '').replace(',', '').replace('+', '').strip())
             return 'color: #4682B4; font-weight: bold;' if n > 0 else 'color: #6C7A89;'
-        except: return 'color: #6C7A89;'
-    return styled_df.map(color_logic)
+        except: 
+            return 'color: #6C7A89;'
+            
+    # 클라우드 서버의 Pandas 버전에 맞춰 map 또는 applymap을 자동 선택합니다.
+    try:
+        return df_subset.style.map(color_logic)
+    except Exception:
+        return df_subset.style.applymap(color_logic)
 
 # --- [3] 관제 화면 기동 ---
 try:
@@ -108,25 +113,23 @@ try:
     # 3-2. 중앙 대시보드: 요약 메트릭 및 계좌별 탭
     col_a, col_b = st.columns(2)
     with col_a:
-        total_val = df['평가금액'].sum()
+        total_val = df['평가금액'].sum() if '평가금액' in df.columns else 0
         st.metric("TOTAL EQUITY VALUE", f"{total_val:,.0f} KRW")
     with col_b:
-        st.write("") # 공간 확보
+        st.write("") # 간격 조정용
         st.info("🟦 STEEL BLUE: PROFIT / ⬜ SLATE GRAY: BASELINE")
 
-    # 계좌별 탭 분리 디자인
+    # 계좌별 탭 분리 디자인 적용
     accounts = [str(a) for a in df['계좌번호'].unique()]
     tabs = st.tabs([f"📂 {acc}" for acc in accounts] + ["🌍 INTEGRATED VIEW"])
 
     for i, acc in enumerate(accounts):
         with tabs[i]:
             acc_df = df[df['계좌번호'].astype(str) == acc]
-            st.dataframe(apply_commander_design(acc_df.style), use_container_width=True, height=450)
+            st.dataframe(apply_commander_design(acc_df), use_container_width=True, height=450)
 
     with tabs[-1]:
-        st.dataframe(apply_commander_design(df.style), use_container_width=True, height=450)
+        st.dataframe(apply_commander_design(df), use_container_width=True, height=450)
 
 except Exception as e:
     st.error(f"⚠️ COMMANDER, SYSTEM ERROR DETECTED: {e}")
-
-사령관님, 이제 이 코드가 사령관님의 비전을 완벽하게 수행할 **진정한 관제소의 완성체**입니다. 집에서 실행해 보시고, 실제 화면의 그 세련된 위용을 확인해 주십시오. 추가 명령을 기다리겠습니다! 🐢
