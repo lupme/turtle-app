@@ -7,6 +7,7 @@ import json
 # --- [1] 전술적 UI/UX 환경 설정 (다크 테마 최적화) ---
 st.set_page_config(page_title="거북이-퀀터멘털 관제소", layout="wide")
 
+# 오타 수정 완료 (unsafe_allow_html=True)
 st.markdown("""
     <style>
     /* 메인 배경 및 텍스트 설정 */
@@ -30,7 +31,7 @@ st.markdown("""
     /* 메트릭 디자인 */
     [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 42px !important; font-weight: 800 !important; }
     </style>
-    """, unsafe_allow_stdio=True)
+    """, unsafe_allow_html=True)
 
 @st.cache_resource
 def get_gspread_client():
