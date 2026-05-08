@@ -4,35 +4,36 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# --- [1] 프리미엄 관제소 V8.1 설정 (방어력 강화) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V8.1", layout="wide")
+# --- [1] 모바일 극강 최적화 UI ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V8.2", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f1f5f9; }
-    h1, h2, h3 { font-family: 'Urbanist', sans-serif !important; }
-    .top-bar { display: flex; justify-content: space-between; align-items: flex-start; width: 100%; padding-bottom: 20px; }
-    .witty-title { font-size: 1.1rem; color: #4682B4; font-weight: 700; letter-spacing: 1.5px; }
+    h1, h2, h3 { font-family: 'Urbanist', 'Noto Sans KR', sans-serif !important; }
+    
+    /* 모바일 아코디언(리스트) 디자인 고급화 */
     .streamlit-expanderHeader { 
         background-color: #0f172a !important; 
-        border-radius: 12px !important; 
+        border-radius: 8px !important; 
         border: 1px solid #1e293b !important;
+        padding: 10px 15px !important;
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+        color: #f8fafc !important;
+    }
+    
+    /* 확장 화면 내부 여백 및 텍스트 최적화 */
+    [data-testid="stExpanderDetails"] {
+        background-color: #020617;
+        border-radius: 0 0 8px 8px;
+        border: 1px solid #1e293b;
+        border-top: none;
         padding: 15px !important;
     }
-    /* 신체 부위 지표 스타일 */
-    .pos-badge { padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 0.8rem; margin-right: 10px; }
-    .pos-head { background-color: #ef4444; color: white; }
-    .pos-shoulder { background-color: #f87171; color: white; }
-    .pos-waist { background-color: #f59e0b; color: white; }
-    .pos-knee { background-color: #34d399; color: white; }
-    .pos-feet { background-color: #10b981; color: white; }
-    .pos-unknown { background-color: #475569; color: white; }
     
-    [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.8rem !important; font-weight: 800 !important; }
-    @media (max-width: 768px) {
-        .witty-title { font-size: 0.9rem; }
-        [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
-    }
+    /* 메트릭 및 상단 요약 텍스트 */
+    [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.6rem !important; font-weight: 800 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -53,50 +54,26 @@ def load_data():
     sheet = doc.get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
-    # [핵심 방어 로직] 필요한 열이 시트에 없어도 시스템이 멈추지 않도록 0으로 자동 생성
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
-    
+    # 52주 지표 제거, '전일종가'는 시인성을 위해 유지 권장 (없으면 0 처리)
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가']
     df = full_df[[c for c in essential_cols if c in full_df.columns]].copy()
     
     for col in essential_cols:
         if col not in df.columns:
-            df[col] = 0 # 시트에 없는 열은 0으로 방어 처리
+            df[col] = 0
         elif col not in ['계좌번호', '계좌유형', '종목명', '수익률', '수익률1']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', ''), errors='coerce').fillna(0)
-    
-    # 수익률 열 이름이 '수익률'이든 '수익률1'이든 유연하게 감지
+            
     target_yield = '수익률' if '수익률' in full_df.columns else '수익률1' if '수익률1' in full_df.columns else None
-    
-    if target_yield:
-        df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0)
-    else:
-        df['수익률_숫자'] = 0.0 # 둘 다 없어도 에러 방지
+    df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0) if target_yield else 0.0
         
     return sheet, df, full_df
 
-# --- [2] 시장 위치 판독 로직 ---
-def get_position_text(now, low, high):
-    if high == 0 or low == 0 or high == low or now == 0: 
-        return "데이터 필요", "pos-unknown"
-    pos = (now - low) / (high - low) * 100
-    if pos >= 85: return "머리 (85% 이상)", "pos-head"
-    if pos >= 65: return "어깨 (과열 진입)", "pos-shoulder"
-    if pos >= 35: return "허리 (평균 시세)", "pos-waist"
-    if pos >= 15: return "무릎 (저점 접근)", "pos-knee"
-    return "발바닥 (극저점)", "pos-feet"
-
-# --- [3] 관제 화면 기동 ---
+# --- [2] 관제 화면 기동 ---
 try:
     sheet, df, full_df = load_data()
     
-    # 사이드바: 목표 금액 설정 (가변형)
-    with st.sidebar:
-        st.header("🎯 함대 전략 설정")
-        target_input = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
-        st.divider()
-        mode = st.radio("전술 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
-
-    st.markdown('<div class="top-bar"><div class="witty-title">🐢 TURTLE COMMAND HQ V8.1</div></div>', unsafe_allow_html=True)
+    st.markdown('<div style="color:#4682B4; font-weight:800; font-size:1.2rem; margin-bottom:10px; letter-spacing:1px;">🐢 TURTLE HQ V8.2</div>', unsafe_allow_html=True)
     
     acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
     selected_type = st.selectbox("📂 섹터 필터", acc_types, label_visibility="collapsed")
@@ -104,26 +81,16 @@ try:
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df = display_df.sort_values(by='수익률_숫자', ascending=False)
 
-    # 계좌별 지표 계산
     total_eval = display_df['평가금액'].sum()
-    total_prev = (display_df['전일종가'] * display_df['잔고수량']).sum()
-    daily_delta = total_eval - total_prev if total_prev > 0 else 0
     
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     c1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    
-    if total_prev > 0:
-        c2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
-    else:
-        c2.metric("전일 대비 증감", "지표 설정 필요", delta=None)
-        
-    c3.metric("전략 고지 달성률", f"{(total_eval/target_input*100):.1f}%")
+    c2.metric("목표 (8.3억) 달성률", f"{(total_eval/830000000*100):.1f}%")
 
     st.divider()
 
-    # 리스트 디자인 (시장 위치 지표 포함)
     if display_df.empty:
-        st.info("기동 대기 중인 자산이 없습니다.")
+        st.info("데이터가 없습니다.")
     else:
         for _, row in display_df.iterrows():
             if "현금" in str(row['종목명']): continue
@@ -133,27 +100,35 @@ try:
             
             now_price = row['현재가2'] if row['현재가2'] != 0 else row['현재가1']
             
-            # 위치 판독
-            pos_text, pos_class = get_position_text(now_price, row['52주최저'], row['52주최고'])
-            
-            title = f"{ball} {row['종목명']} │ {now_price:,.0f}원 │ {yield_val:.2f}%"
+            # 전일 대비 증감 계산 (시트에 전일종가가 있어야 정확히 작동)
+            if row['전일종가'] > 0:
+                change_amt = now_price - row['전일종가']
+                change_sign = "▲" if change_amt > 0 else "▼" if change_amt < 0 else "-"
+                price_display = f"{now_price:,.0f} ({change_sign}{abs(change_amt):,.0f})"
+            else:
+                price_display = f"{now_price:,.0f}"
+                
+            # [시인성 개선] 메인 리스트 텍스트 최적화
+            title = f"{ball} {row['종목명']} │ {price_display} │ {yield_val:.2f}%"
             
             with st.expander(title):
-                st.markdown(f'<span class="pos-badge {pos_class}">시장위치: {pos_text}</span>', unsafe_allow_html=True)
+                # 1단계 도입 데이터: 포트폴리오 비중 추가
+                weight = (row['평가금액'] / total_eval * 100) if total_eval > 0 else 0
+                
+                st.markdown(f"<span style='color:#6C7A89; font-size:0.85rem;'>계좌: {row['계좌유형']} | 자산 비중: <strong style='color:#4682B4;'>{weight:.1f}%</strong></span>", unsafe_allow_html=True)
+                
                 sc1, sc2 = st.columns(2)
                 with sc1:
-                    st.write(f"📊 **평가금액:** {row['평가금액']:,.0f}원")
-                    st.write(f"💰 **투입금액:** {row['매수금액']:,.0f}원")
+                    st.write(f"📊 **평가액:** {row['평가금액']:,.0f}원")
+                    st.write(f"💰 **투입금:** {row['매수금액']:,.0f}원")
                 with sc2:
-                    st.write(f"🎯 **평균단가:** {row['매수단가']:,.0f}원")
-                    if row['52주최고'] > 0:
-                        st.write(f"📈 **52주 최고:** {row['52주최고']:,.0f}원")
-                    else:
-                        st.write("📈 **52주 지표:** 구글 시트 추가 필요")
-                st.caption(f"좌표: {row['계좌번호']} / {row['계좌유형']}")
+                    st.write(f"🎯 **평단가:** {row['매수단가']:,.0f}원")
+                    st.write(f"📦 **수량:** {row['잔고수량']:,.0f}주")
 
-    # --- [4] 사이드바 폼 로직 ---
+    # --- [3] 사이드바 (변경 없음) ---
     with st.sidebar:
+        st.header("🛠️ 작전 통제")
+        mode = st.radio("모드", ["기존 매매", "데이터 수정", "신규 추가"])
         with st.form("command_form"):
             acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows()]
             sel_acc_str = st.selectbox("타격 계좌", acc_opts)
@@ -168,9 +143,9 @@ try:
                 s_code = st.text_input("종목번호(선택)")
                 
             qty = st.number_input("수량", min_value=0, step=1)
-            price = st.number_input("현재가/단가", min_value=0, step=100)
+            price = st.number_input("단가", min_value=0, step=100)
             
-            if st.form_submit_button("명령 하달 (Sync)"):
+            if st.form_submit_button("시트 동기화"):
                 idx_map = {col: i+1 for i, col in enumerate(full_df.columns)}
                 if "수정" in mode:
                     t_idx = full_df[(full_df['계좌번호'].astype(str) == sel_acc) & (full_df['종목명'] == s_name)].index[0]
