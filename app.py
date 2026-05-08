@@ -4,8 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# --- [1] 프리미엄 관제소 V11.0 ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V11.0", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 프리미엄 관제소 V12.0 ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V12.0", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -14,7 +14,7 @@ st.markdown("""
     
     .hq-title { font-size: 1.2rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; margin-bottom: 0; padding-top: 10px; }
     
-    /* 아코디언 카드 글자 깨짐(화살표 겹침) 완벽 해결 */
+    /* 글자 깨짐 방어: 타이틀의 불필요한 마크다운 간섭 차단 */
     [data-testid="stExpander"] {
         background-color: #0f172a !important;
         border: 1px solid #1e293b !important;
@@ -61,13 +61,13 @@ def load_data():
     sheet = doc.get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
     df = full_df[[c for c in essential_cols if c in full_df.columns]].copy()
     
     for col in essential_cols:
         if col not in df.columns:
             df[col] = 0
-        elif col not in ['계좌번호', '계좌유형', '종목명', '수익률', '수익률1']:
+        elif col not in ['계좌번호', '계좌유형', '종목명', '종목코드', '수익률', '수익률1']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', ''), errors='coerce').fillna(0)
     
     target_yield = '수익률' if '수익률' in full_df.columns else '수익률1' if '수익률1' in full_df.columns else None
@@ -101,37 +101,45 @@ try:
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df = display_df.sort_values(by='수익률_숫자', ascending=False)
 
+    # 지표 통합 산출 (현금 예수금 부활)
     total_eval = display_df['평가금액'].sum()
     total_prev = (display_df['전일종가'] * display_df['잔고수량']).sum()
     daily_delta = total_eval - total_prev if total_prev > 0 else 0
+    total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
-    kc1, kc2, kc3 = st.columns(3)
+    # 4대 KPI 카드 배치
+    kc1, kc2, kc3, kc4 = st.columns(4)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
     if total_prev > 0: kc2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
     else: kc2.metric("전일 대비 증감", "지표 없음", delta=None)
+    kc3.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
-    # 목표 달성률을 사이드바에서 받아오기 위해 먼저 렌더링
     target_input = 830000000
 
     if display_df.empty:
         st.info("기동 대기 중인 자산이 없습니다.")
     else:
         for _, row in display_df.iterrows():
-            if "현금" in str(row['종목명']): continue
+            is_cash = "현금" in str(row['종목명']) or "예수금" in str(row['종목명'])
             
             yield_val = row.get('수익률_숫자', 0)
-            ball = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
             now_price = row['현재가2'] if row['현재가2'] != 0 else row['현재가1']
             prev_price = row['전일종가']
             
             daily_diff = now_price - prev_price if prev_price > 0 else 0
             diff_str = f"(▲{daily_diff:,.0f})" if daily_diff > 0 else f"(▼{abs(daily_diff):,.0f})" if daily_diff < 0 else ""
             
-            title = f"{ball} {row['종목명']} │ {now_price:,.0f}원 {diff_str} │ {yield_val:.2f}%"
+            # 현금은 특수 렌더링, 일반 주식은 이모지 제거하여 글자 겹침 방지
+            if is_cash:
+                title = f"💵 {row['종목명']} │ {row['평가금액']:,.0f}원"
+            else:
+                title = f"{row['종목명']} │ {now_price:,.0f}원 {diff_str} │ {yield_val:.2f}%"
             
             with st.expander(title):
-                pos_text, pos_class = get_position_text(now_price, row['52주최저'], row['52주최고'])
-                st.markdown(f'<div class="pos-badge {pos_class}">📍 시세위치: {pos_text}</div>', unsafe_allow_html=True)
+                if not is_cash:
+                    ball = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
+                    pos_text, pos_class = get_position_text(now_price, row['52주최저'], row['52주최고'])
+                    st.markdown(f'<div class="pos-badge {pos_class}">📍 시세위치: {pos_text}</div> <span style="font-weight:bold; margin-left:10px;">전술 상태: {ball}</span>', unsafe_allow_html=True)
                 
                 html_content = f"""
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -145,17 +153,16 @@ try:
                 """
                 st.markdown(html_content, unsafe_allow_html=True)
 
-    # --- [4] 사이드바 (동적 렌더링) ---
+    # --- [4] 사이드바 로직 ---
     with st.sidebar:
         st.header("🎯 함대 전략 설정")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
-        kc3.metric("목표 달성률", f"{(total_eval/target_val*100):.1f}%") # 지표 업데이트
+        kc4.metric("목표 달성률", f"{(total_eval/target_val*100):.1f}%")
         
         st.divider()
         st.header("🛠️ 작전 명령")
         mode = st.radio("전술 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
         
-        # 폼(Form)을 해체하여 계좌 선택 시 종목 리스트가 실시간으로 연동되도록 개조
         acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
         sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts) if acc_opts else ""
         sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
@@ -166,14 +173,13 @@ try:
             s_name = st.selectbox("종목 선택", s_list if s_list else ["없음"])
             action = st.radio("구분", ["매수", "매도"], horizontal=True) if "매매" in mode else None
         else:
-            s_name = st.text_input("신규 종목명/코드")
-            s_code = st.text_input("종목번호(선택)")
-            st.caption("⚠️ 신규 추가 후 구글 시트에서 수식 셀을 아래로 드래그해야 가격이 표시됩니다.")
+            s_name = st.text_input("신규 종목명")
+            s_code = st.text_input("종목번호(6자리 숫자)")
+            st.caption("💡 종목코드를 넣으면 가격 수식이 자동으로 구글 시트에 심어집니다.")
             
         qty = st.number_input("수량", min_value=0, step=1)
         price = st.number_input("현재가/단가", min_value=0, step=100)
         
-        # 일반 버튼으로 전환 (누르는 즉시 반영)
         if st.button("명령 하달 (Sync)"):
             idx_map = {col: i+1 for i, col in enumerate(full_df.columns)}
             if "수정" in mode and s_name != "없음":
@@ -198,9 +204,17 @@ try:
                     acc_type = full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['계좌유형'].iloc[0] if not full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc].empty else "수동"
                     if '계좌유형' in idx_map: sheet.update_cell(new_row, idx_map['계좌유형'], acc_type)
                     if '종목명' in idx_map: sheet.update_cell(new_row, idx_map['종목명'], s_name)
-                    if s_code and '종목코드' in idx_map: sheet.update_cell(new_row, idx_map['종목코드'], str(s_code))
                     if '잔고수량' in idx_map: sheet.update_cell(new_row, idx_map['잔고수량'], int(qty))
                     if '매수단가' in idx_map: sheet.update_cell(new_row, idx_map['매수단가'], int(price))
+                    
+                    # [초강력 수식 자동 발사 로직] 구글 파이낸스 수식을 구글 시트에 직접 기록
+                    if s_code:
+                        clean_code = str(s_code).strip().zfill(6)
+                        if '종목코드' in idx_map: sheet.update_cell(new_row, idx_map['종목코드'], clean_code)
+                        if '현재가2' in idx_map: sheet.update_cell(new_row, idx_map['현재가2'], f'=GOOGLEFINANCE("KRX:{clean_code}", "price")')
+                        if '전일종가' in idx_map: sheet.update_cell(new_row, idx_map['전일종가'], f'=GOOGLEFINANCE("KRX:{clean_code}", "price") - GOOGLEFINANCE("KRX:{clean_code}", "change")')
+                        if '52주최고' in idx_map: sheet.update_cell(new_row, idx_map['52주최고'], f'=GOOGLEFINANCE("KRX:{clean_code}", "high52")')
+                        if '52주최저' in idx_map: sheet.update_cell(new_row, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{clean_code}", "low52")')
             st.cache_data.clear()
             st.rerun()
 
