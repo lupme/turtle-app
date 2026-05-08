@@ -4,8 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# --- [1] 프리미엄 관제소 V12.0 ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V12.0", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 프리미엄 관제소 V13.0 (시각적 버그 완벽 차단) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V13.0", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -14,17 +14,21 @@ st.markdown("""
     
     .hq-title { font-size: 1.2rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; margin-bottom: 0; padding-top: 10px; }
     
-    /* 글자 깨짐 방어: 타이틀의 불필요한 마크다운 간섭 차단 */
+    /* 아코디언 디자인 (글자 깨짐 방어) */
     [data-testid="stExpander"] {
         background-color: #0f172a !important;
         border: 1px solid #1e293b !important;
         border-left: 4px solid #4682B4 !important;
         border-radius: 8px !important;
         margin-bottom: 12px !important;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
-    [data-testid="stExpander"] summary { padding: 1rem !important; }
-    [data-testid="stExpander"] summary p { font-size: 1.05rem !important; font-weight: 700 !important; color: #f8fafc !important; }
+    
+    /* 핵심: 스트림릿 기본 화살표 아이콘 완전 삭제 (글자 누수 원흉 제거) */
+    [data-testid="stExpander"] summary svg { display: none !important; }
+    [data-testid="stExpander"] summary::marker { display: none !important; }
+    
+    [data-testid="stExpander"] summary { padding: 1rem !important; list-style-type: none !important; }
+    [data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 700 !important; color: #f8fafc !important; margin: 0 !important; }
     [data-testid="stExpanderDetails"] { background-color: #020617 !important; padding: 1.5rem !important; border-top: 1px solid #1e293b !important; }
 
     .metric-box { margin-bottom: 10px; }
@@ -101,13 +105,11 @@ try:
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df = display_df.sort_values(by='수익률_숫자', ascending=False)
 
-    # 지표 통합 산출 (현금 예수금 부활)
     total_eval = display_df['평가금액'].sum()
     total_prev = (display_df['전일종가'] * display_df['잔고수량']).sum()
     daily_delta = total_eval - total_prev if total_prev > 0 else 0
     total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
-    # 4대 KPI 카드 배치
     kc1, kc2, kc3, kc4 = st.columns(4)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
     if total_prev > 0: kc2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
@@ -129,17 +131,17 @@ try:
             daily_diff = now_price - prev_price if prev_price > 0 else 0
             diff_str = f"(▲{daily_diff:,.0f})" if daily_diff > 0 else f"(▼{abs(daily_diff):,.0f})" if daily_diff < 0 else ""
             
-            # 현금은 특수 렌더링, 일반 주식은 이모지 제거하여 글자 겹침 방지
+            # 화살표 버그를 막기 위해 구조를 가장 단순화
             if is_cash:
                 title = f"💵 {row['종목명']} │ {row['평가금액']:,.0f}원"
             else:
-                title = f"{row['종목명']} │ {now_price:,.0f}원 {diff_str} │ {yield_val:.2f}%"
+                mark = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
+                title = f"📂 {mark} {row['종목명']} │ {now_price:,.0f}원 {diff_str} │ {yield_val:.2f}%"
             
             with st.expander(title):
                 if not is_cash:
-                    ball = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
                     pos_text, pos_class = get_position_text(now_price, row['52주최저'], row['52주최고'])
-                    st.markdown(f'<div class="pos-badge {pos_class}">📍 시세위치: {pos_text}</div> <span style="font-weight:bold; margin-left:10px;">전술 상태: {ball}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="pos-badge {pos_class}">📍 시세위치: {pos_text}</div>', unsafe_allow_html=True)
                 
                 html_content = f"""
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -153,7 +155,7 @@ try:
                 """
                 st.markdown(html_content, unsafe_allow_html=True)
 
-    # --- [4] 사이드바 로직 ---
+    # --- [4] 사이드바 로직 (2단 장전 방식 적용) ---
     with st.sidebar:
         st.header("🎯 함대 전략 설정")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
@@ -175,7 +177,7 @@ try:
         else:
             s_name = st.text_input("신규 종목명")
             s_code = st.text_input("종목번호(6자리 숫자)")
-            st.caption("💡 종목코드를 넣으면 가격 수식이 자동으로 구글 시트에 심어집니다.")
+            st.caption("💡 수동 입력 종목(TDF 등)은 종목번호를 비워두십시오.")
             
         qty = st.number_input("수량", min_value=0, step=1)
         price = st.number_input("현재가/단가", min_value=0, step=100)
@@ -204,10 +206,14 @@ try:
                     acc_type = full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['계좌유형'].iloc[0] if not full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc].empty else "수동"
                     if '계좌유형' in idx_map: sheet.update_cell(new_row, idx_map['계좌유형'], acc_type)
                     if '종목명' in idx_map: sheet.update_cell(new_row, idx_map['종목명'], s_name)
+                    
+                    # 1단 장전: 사용자가 입력한 숫자를 먼저 박아서 0원 사태 방어
                     if '잔고수량' in idx_map: sheet.update_cell(new_row, idx_map['잔고수량'], int(qty))
                     if '매수단가' in idx_map: sheet.update_cell(new_row, idx_map['매수단가'], int(price))
+                    if '현재가2' in idx_map: sheet.update_cell(new_row, idx_map['현재가2'], int(price))
+                    if '현재가1' in idx_map: sheet.update_cell(new_row, idx_map['현재가1'], int(price))
                     
-                    # [초강력 수식 자동 발사 로직] 구글 파이낸스 수식을 구글 시트에 직접 기록
+                    # 2단 장전: 종목코드가 있다면 그 위에 수식을 덮어씀 (다음 로딩부터 구글 서버가 계산)
                     if s_code:
                         clean_code = str(s_code).strip().zfill(6)
                         if '종목코드' in idx_map: sheet.update_cell(new_row, idx_map['종목코드'], clean_code)
