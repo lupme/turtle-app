@@ -6,8 +6,8 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-# --- [1] 프리미엄 관제소 V15.0 ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V15.0", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 프리미엄 관제소 V16.0 ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V16.0", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -24,27 +24,29 @@ st.markdown("""
         margin-bottom: 12px !important;
     }
     
+    [data-testid="stExpander"] summary svg { display: none !important; }
+    [data-testid="stExpander"] summary { padding: 1rem !important; list-style-type: none !important; }
     [data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 700 !important; color: #f8fafc !important; }
     [data-testid="stExpanderDetails"] { background-color: #020617 !important; padding: 1.5rem !important; border-top: 1px solid #1e293b !important; }
 
-    .metric-box { margin-bottom: 10px; }
-    .metric-label { color: #64748b; font-size: 0.8rem; font-weight: 600; margin-bottom: 2px; }
+    .metric-box { margin-bottom: 15px; }
+    .metric-label { color: #64748b; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; text-transform: uppercase; }
     .metric-value { color: #f8fafc; font-size: 1.15rem; font-weight: 700; }
     .metric-value-blue { color: #4682B4; font-size: 1.15rem; font-weight: 800; }
+    .metric-value-gray { color: #94a3b8; font-size: 1rem; font-weight: 500; }
 
-    .pos-badge { padding: 4px 8px; border-radius: 4px; font-weight: 700; font-size: 0.8rem; margin-bottom: 10px; display: inline-block; }
-    .pos-head { background-color: #ef4444; color: #fff; }
-    .pos-shoulder { background-color: #f87171; color: #fff; }
-    .pos-waist { background-color: #f59e0b; color: #fff; }
-    .pos-knee { background-color: #34d399; color: #fff; }
-    .pos-feet { background-color: #10b981; color: #fff; }
-    .pos-unknown { background-color: #475569; color: #fff; }
+    .pos-badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 15px; display: inline-block; }
+    .pos-head { background-color: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; }
+    .pos-shoulder { background-color: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid #f87171; }
+    .pos-waist { background-color: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid #f59e0b; }
+    .pos-knee { background-color: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid #34d399; }
+    .pos-feet { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid #10b981; }
+    .pos-unknown { background-color: rgba(71, 85, 105, 0.15); color: #94a3b8; border: 1px solid #64748b; }
     
     [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.6rem !important; font-weight: 800 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 시트 열 번호를 알파벳(A, B, C...)으로 변환하는 전술 함수
 def col_letter(n):
     string = ""
     while n > 0:
@@ -53,7 +55,7 @@ def col_letter(n):
     return string
 
 def fetch_emergency_price(ticker):
-    if pd.isna(ticker) or str(ticker).strip() == "": return 0
+    if pd.isna(ticker) or str(ticker).strip() == "" or str(ticker).strip() == "0": return 0
     clean_ticker = str(int(float(ticker))).zfill(6) if str(ticker).replace('.','').isdigit() else str(ticker).strip()
     try:
         url = f"https://finance.naver.com/item/main.naver?code={clean_ticker}"
@@ -102,11 +104,11 @@ def load_data():
 def get_position_text(now, low, high):
     if high == 0 or low == 0 or high <= low or now == 0: return "지표 부족", "pos-unknown"
     pos = (now - low) / (high - low) * 100
-    if pos >= 85: return "머리 (85%↑)", "pos-head"
-    if pos >= 65: return "어깨 (과열권)", "pos-shoulder"
-    if pos >= 35: return "허리 (평균가)", "pos-waist"
-    if pos >= 15: return "무릎 (저점권)", "pos-knee"
-    return "발바닥 (바닥권)", "pos-feet"
+    if pos >= 85: return f"머리 ({pos:.0f}%↑)", "pos-head"
+    if pos >= 65: return f"어깨 ({pos:.0f}%)", "pos-shoulder"
+    if pos >= 35: return f"허리 ({pos:.0f}%)", "pos-waist"
+    if pos >= 15: return f"무릎 ({pos:.0f}%)", "pos-knee"
+    return f"발바닥 ({pos:.0f}%↓)", "pos-feet"
 
 # --- [3] 관제 화면 기동 ---
 try:
@@ -169,21 +171,22 @@ try:
                 title = f"💵 {row['종목명']} │ {row['보정평가금액']:,.0f}원"
             else:
                 mark = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
-                title = f"{mark} {row['종목명']} │ {now_price:,.0f}원 {diff_str} │ {yield_val:.2f}%"
+                title = f"📂 {mark} {row['종목명']} │ {now_price:,.0f}원 {diff_str} │ {yield_val:.2f}%"
             
             with st.expander(title):
                 if not is_cash:
                     pos_text, pos_class = get_position_text(now_price, row['52주최저'], row['52주최고'])
-                    st.markdown(f'<div class="pos-badge {pos_class}">시세위치: {pos_text}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="pos-badge {pos_class}">📍 시세위치: {pos_text}</div>', unsafe_allow_html=True)
                 
+                # 52주 최저가를 포함하여 사령관님이 직접 위치 계산을 검증할 수 있도록 개선
                 html_content = f"""
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                     <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-value-blue">{row['보정평가금액']:,.0f}원</div></div>
                     <div class="metric-box"><div class="metric-label">현재 시세</div><div class="metric-value">{now_price:,.0f}원</div></div>
                     <div class="metric-box"><div class="metric-label">투입 원금</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
                     <div class="metric-box"><div class="metric-label">평균 단가</div><div class="metric-value">{row['매수단가']:,.0f}원</div></div>
                     <div class="metric-box"><div class="metric-label">보유 수량</div><div class="metric-value">{row['잔고수량']:,.0f}주</div></div>
-                    <div class="metric-box"><div class="metric-label">52주 최고가</div><div class="metric-value">{row['52주최고']:,.0f}원</div></div>
+                    <div class="metric-box"><div class="metric-label">52주 최고/최저가</div><div class="metric-value">{row['52주최고']:,.0f}원 <span class="metric-value-gray">/ {row['52주최저']:,.0f}원</span></div></div>
                 </div>
                 """
                 st.markdown(html_content, unsafe_allow_html=True)
@@ -198,88 +201,4 @@ try:
         st.header("🛠️ 작전 명령")
         mode = st.radio("전술 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
         
-        acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
-        sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts) if acc_opts else ""
-        sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
-        
-        if "신규" not in mode:
-            s_list = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (~full_df['종목명'].astype(str).str.contains('합계|총계', na=False))]['종목명'].dropna().tolist()
-            s_list = [s for s in s_list if str(s).strip() != '']
-            s_name = st.selectbox("종목 선택", s_list if s_list else ["없음"])
-            action = st.radio("구분", ["매수", "매도"], horizontal=True) if "매매" in mode else None
-        else:
-            s_name = st.text_input("신규 종목명")
-            s_code = st.text_input("종목번호(6자리 숫자)")
-            
-        qty = st.number_input("수량", min_value=0, step=1)
-        price = st.number_input("현재가/단가", min_value=0, step=100)
-        
-        if st.button("명령 하달 (Sync)"):
-            idx_map = {col: i+1 for i, col in enumerate(full_df.columns)}
-            
-            if "수정" in mode and s_name != "없음":
-                t_idx = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index[0]
-                if '잔고수량' in idx_map: sheet.update_cell(t_idx+2, idx_map['잔고수량'], int(qty))
-                if '매수단가' in idx_map: sheet.update_cell(t_idx+2, idx_map['매수단가'], int(price))
-            
-            elif "매매" in mode and s_name != "없음":
-                t_idx = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index[0]
-                old_qty, old_avg = full_df.at[t_idx, '잔고수량'], full_df.at[t_idx, '매수단가']
-                if action == "매수":
-                    new_qty = old_qty + qty
-                    new_avg = ((old_qty * old_avg) + (qty * price)) / new_qty if new_qty > 0 else 0
-                else:
-                    new_qty = max(0, old_qty - qty)
-                    new_avg = old_avg
-                if '잔고수량' in idx_map: sheet.update_cell(t_idx+2, idx_map['잔고수량'], int(new_qty))
-                if '매수단가' in idx_map: sheet.update_cell(t_idx+2, idx_map['매수단가'], int(new_avg))
-            
-            elif "신규" in mode:
-                if s_name:
-                    new_row = len(full_df) + 2
-                    if '계좌번호' in idx_map: sheet.update_cell(new_row, idx_map['계좌번호'], sel_acc)
-                    acc_type = full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['계좌유형'].iloc[0] if not full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc].empty else "수동"
-                    if '계좌유형' in idx_map: sheet.update_cell(new_row, idx_map['계좌유형'], acc_type)
-                    if '종목명' in idx_map: sheet.update_cell(new_row, idx_map['종목명'], s_name)
-                    if '잔고수량' in idx_map: sheet.update_cell(new_row, idx_map['잔고수량'], int(qty))
-                    if '매수단가' in idx_map: sheet.update_cell(new_row, idx_map['매수단가'], int(price))
-                    
-                    # [V15.0 핵심 방어 로직] 수량/단가 외 계산 수식들을 시트에 직접 주입합니다.
-                    c_qty = col_letter(idx_map.get('잔고수량', 0))
-                    c_buy = col_letter(idx_map.get('매수단가', 0))
-                    c_cur = col_letter(idx_map.get('현재가2', idx_map.get('현재가1', 0)))
-                    c_buy_amt = col_letter(idx_map.get('매수금액', 0))
-                    c_eval_amt = col_letter(idx_map.get('평가금액', 0))
-                    c_profit = col_letter(idx_map.get('평가손익', 0))
-                    
-                    if c_qty and c_buy and c_buy_amt:
-                        sheet.update_cell(new_row, idx_map['매수금액'], f"={c_qty}{new_row}*{c_buy}{new_row}")
-                    if c_qty and c_cur and c_eval_amt:
-                        sheet.update_cell(new_row, idx_map['평가금액'], f"={c_qty}{new_row}*{c_cur}{new_row}")
-                    if c_eval_amt and c_buy_amt and c_profit:
-                        sheet.update_cell(new_row, idx_map['평가손익'], f"={c_eval_amt}{new_row}-{c_buy_amt}{new_row}")
-                    
-                    target_yield_idx = idx_map.get('수익률', idx_map.get('수익률1', 0))
-                    c_yield = col_letter(target_yield_idx)
-                    if c_yield and c_profit and c_buy_amt:
-                        sheet.update_cell(new_row, target_yield_idx, f"=IFERROR({c_profit}{new_row}/{c_buy_amt}{new_row}, 0)")
-                    
-                    # 구글 파이낸스 시세 연동
-                    if s_code:
-                        clean_code = str(s_code).strip().zfill(6)
-                        if '종목코드' in idx_map: sheet.update_cell(new_row, idx_map['종목코드'], clean_code)
-                        if '현재가2' in idx_map: sheet.update_cell(new_row, idx_map['현재가2'], f'=GOOGLEFINANCE("KRX:{clean_code}", "price")')
-                        if '현재가1' in idx_map: sheet.update_cell(new_row, idx_map['현재가1'], f'=GOOGLEFINANCE("KRX:{clean_code}", "price")')
-                        if '전일종가' in idx_map: sheet.update_cell(new_row, idx_map['전일종가'], f'=GOOGLEFINANCE("KRX:{clean_code}", "price") - GOOGLEFINANCE("KRX:{clean_code}", "change")')
-                        if '52주최고' in idx_map: sheet.update_cell(new_row, idx_map['52주최고'], f'=GOOGLEFINANCE("KRX:{clean_code}", "high52")')
-                        if '52주최저' in idx_map: sheet.update_cell(new_row, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{clean_code}", "low52")')
-                    else:
-                        # 수동 종목(TDF 등)일 경우 입력한 가격을 현재가로 박아둠
-                        if '현재가2' in idx_map: sheet.update_cell(new_row, idx_map['현재가2'], int(price))
-                        if '현재가1' in idx_map: sheet.update_cell(new_row, idx_map['현재가1'], int(price))
-                        
-            st.cache_data.clear()
-            st.rerun()
-
-except Exception as e:
-    st.error(f"함대 기동 중지: {e}")
+        acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌
