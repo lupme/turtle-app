@@ -4,15 +4,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# --- [1] 모바일 극강 최적화 UI ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V8.2", layout="wide")
+# --- [1] 모바일 극강 최적화 UI (V8.3 - 현금 연동) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V8.3", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f1f5f9; }
     h1, h2, h3 { font-family: 'Urbanist', 'Noto Sans KR', sans-serif !important; }
-    
-    /* 모바일 아코디언(리스트) 디자인 고급화 */
     .streamlit-expanderHeader { 
         background-color: #0f172a !important; 
         border-radius: 8px !important; 
@@ -22,17 +20,7 @@ st.markdown("""
         font-weight: 700 !important;
         color: #f8fafc !important;
     }
-    
-    /* 확장 화면 내부 여백 및 텍스트 최적화 */
-    [data-testid="stExpanderDetails"] {
-        background-color: #020617;
-        border-radius: 0 0 8px 8px;
-        border: 1px solid #1e293b;
-        border-top: none;
-        padding: 15px !important;
-    }
-    
-    /* 메트릭 및 상단 요약 텍스트 */
+    [data-testid="stExpanderDetails"] { background-color: #020617; border-radius: 0 0 8px 8px; border: 1px solid #1e293b; border-top: none; padding: 15px !important; }
     [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.6rem !important; font-weight: 800 !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -42,8 +30,7 @@ def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info:
         key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
-    creds = Credentials.from_service_account_info(key_info, 
-        scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
+    creds = Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=60)
@@ -54,7 +41,6 @@ def load_data():
     sheet = doc.get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
-    # 52주 지표 제거, '전일종가'는 시인성을 위해 유지 권장 (없으면 0 처리)
     essential_cols = ['계좌번호', '계좌유형', '종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가']
     df = full_df[[c for c in essential_cols if c in full_df.columns]].copy()
     
@@ -73,19 +59,25 @@ def load_data():
 try:
     sheet, df, full_df = load_data()
     
-    st.markdown('<div style="color:#4682B4; font-weight:800; font-size:1.2rem; margin-bottom:10px; letter-spacing:1px;">🐢 TURTLE HQ V8.2</div>', unsafe_allow_html=True)
+    st.markdown('<div style="color:#4682B4; font-weight:800; font-size:1.2rem; margin-bottom:10px; letter-spacing:1px;">🐢 TURTLE HQ V8.3</div>', unsafe_allow_html=True)
     
     acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
     selected_type = st.selectbox("📂 섹터 필터", acc_types, label_visibility="collapsed")
     
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
-    display_df = display_df.sort_values(by='수익률_숫자', ascending=False)
-
-    total_eval = display_df['평가금액'].sum()
     
-    c1, c2 = st.columns(2)
+    # --- [핵심] 자산 및 현금 분리 연산 ---
+    total_eval = display_df['평가금액'].sum()
+    cash_mask = display_df['종목명'].astype(str).str.contains('현금')
+    total_cash = display_df[cash_mask]['평가금액'].sum() # 현금만 추출하여 합산
+    
+    # 수익률 기준 정렬 (현금은 리스트 하단으로 내리거나 제외할 수 있으나 정렬 유지)
+    display_df = display_df.sort_values(by='수익률_숫자', ascending=False)
+    
+    c1, c2, c3 = st.columns(3)
     c1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    c2.metric("목표 (8.3억) 달성률", f"{(total_eval/830000000*100):.1f}%")
+    c2.metric("기동 대기 현금", f"{total_cash:,.0f}원")
+    c3.metric("고지(8.3억) 달성률", f"{(total_eval/830000000*100):.1f}%")
 
     st.divider()
 
@@ -93,14 +85,12 @@ try:
         st.info("데이터가 없습니다.")
     else:
         for _, row in display_df.iterrows():
-            if "현금" in str(row['종목명']): continue
+            if "현금" in str(row['종목명']): continue # 현금은 위에서 보여주므로 리스트에서는 숨김 처리
             
             yield_val = row.get('수익률_숫자', 0)
             ball = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
-            
             now_price = row['현재가2'] if row['현재가2'] != 0 else row['현재가1']
             
-            # 전일 대비 증감 계산 (시트에 전일종가가 있어야 정확히 작동)
             if row['전일종가'] > 0:
                 change_amt = now_price - row['전일종가']
                 change_sign = "▲" if change_amt > 0 else "▼" if change_amt < 0 else "-"
@@ -108,13 +98,10 @@ try:
             else:
                 price_display = f"{now_price:,.0f}"
                 
-            # [시인성 개선] 메인 리스트 텍스트 최적화
             title = f"{ball} {row['종목명']} │ {price_display} │ {yield_val:.2f}%"
             
             with st.expander(title):
-                # 1단계 도입 데이터: 포트폴리오 비중 추가
                 weight = (row['평가금액'] / total_eval * 100) if total_eval > 0 else 0
-                
                 st.markdown(f"<span style='color:#6C7A89; font-size:0.85rem;'>계좌: {row['계좌유형']} | 자산 비중: <strong style='color:#4682B4;'>{weight:.1f}%</strong></span>", unsafe_allow_html=True)
                 
                 sc1, sc2 = st.columns(2)
@@ -125,7 +112,7 @@ try:
                     st.write(f"🎯 **평단가:** {row['매수단가']:,.0f}원")
                     st.write(f"📦 **수량:** {row['잔고수량']:,.0f}주")
 
-    # --- [3] 사이드바 (변경 없음) ---
+    # --- [3] 사이드바 폼 ---
     with st.sidebar:
         st.header("🛠️ 작전 통제")
         mode = st.radio("모드", ["기존 매매", "데이터 수정", "신규 추가"])
