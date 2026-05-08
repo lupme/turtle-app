@@ -5,58 +5,53 @@ from google.oauth2.service_account import Credentials
 import json
 import requests
 from bs4 import BeautifulSoup
+import time
 
-# --- [1] 프리미엄 관제소 V18.0 (순수 HTML/CSS 커스텀 엔진) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V18.0", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 프리미엄 관제소 V19.0 (MTS UI & 시장 지수) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V19.0", layout="wide", initial_sidebar_state="expanded")
 
-# 스트림릿 기본 UI를 덮어버리는 압도적 프리미엄 CSS
 st.markdown("""
     <style>
-    /* 전체 테마 통제 */
     .stApp { background-color: #020617; color: #f1f5f9; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.4rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; padding-top: 10px; margin-bottom: 20px; }
     
-    /* [핵심] 커스텀 아코디언 (HTML details 태그 활용) */
+    /* 지수 전광판 스타일 */
+    .index-container { display: flex; justify-content: space-between; background: #0f172a; padding: 15px 20px; border-radius: 12px; border: 1px solid #1e293b; margin-bottom: 20px; }
+    .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
+    .index-name { font-size: 0.85rem; color: #94a3b8; font-weight: 700; margin-bottom: 4px; }
+    .index-val { font-size: 1.2rem; font-weight: 800; color: #f8fafc; }
+    .index-diff { font-size: 0.85rem; font-weight: 600; }
+    
+    /* MTS 스타일 커스텀 아코디언 */
     details.premium-card {
-        background-color: #0f172a;
-        border: 1px solid #1e293b;
-        border-radius: 12px;
-        margin-bottom: 14px;
-        transition: all 0.2s ease-in-out;
-        overflow: hidden;
+        background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s;
     }
-    details.premium-card:hover { border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); }
-    
-    /* 카드 헤더 (토스/위불 스타일) */
+    details.premium-card:hover { border-color: #4682B4; box-shadow: 0 4px 12px rgba(70, 130, 180, 0.15); }
     details.premium-card summary {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 18px 20px; cursor: pointer; list-style: none; user-select: none;
+        display: flex; align-items: center; padding: 16px 20px; cursor: pointer; list-style: none; user-select: none;
     }
-    details.premium-card summary::-webkit-details-marker { display: none; } /* 기본 화살표 완벽 제거 */
+    details.premium-card summary::-webkit-details-marker { display: none; }
     
-    .card-header-left { display: flex; align-items: center; gap: 12px; }
-    .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+    /* 4열 완벽 정렬 그리드 (MTS 비율) */
+    .row-layout { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; }
+    .col-name { width: 35%; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+    .col-price { width: 25%; text-align: right; font-size: 1.1rem; font-weight: 800; color: #f8fafc; }
+    .col-diff { width: 20%; text-align: right; font-size: 0.95rem; font-weight: 700; }
+    .col-yield { width: 20%; text-align: right; font-size: 1.05rem; font-weight: 800; }
+    
+    .status-dot { min-width: 8px; height: 8px; border-radius: 50%; }
     .dot-red { background-color: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
     .dot-blue { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
     .dot-gray { background-color: #94a3b8; }
-    .stock-name { font-size: 1.15rem; font-weight: 700; color: #f8fafc; }
+    .stock-name { font-size: 1.1rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     
-    .card-header-right { text-align: right; }
-    .stock-price { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
-    .stock-diff { font-size: 0.9rem; font-weight: 600; margin-top: 2px; }
-    .text-red { color: #ef4444; }
-    .text-blue { color: #3b82f6; }
-    .text-gray { color: #94a3b8; }
+    .text-red { color: #ef4444; } .text-blue { color: #3b82f6; } .text-gray { color: #94a3b8; }
     
-    /* 카드 내부 (상세 지표) */
-    .card-body {
-        background-color: #020617;
-        padding: 20px; border-top: 1px solid #1e293b;
-    }
+    .card-body { background-color: #020617; padding: 20px; border-top: 1px solid #1e293b; }
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
     .metric-box { display: flex; flex-direction: column; }
-    .metric-label { font-size: 0.8rem; font-weight: 600; color: #64748b; margin-bottom: 4px; text-transform: uppercase; }
+    .metric-label { font-size: 0.8rem; font-weight: 600; color: #64748b; margin-bottom: 4px; }
     .metric-value { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
     .metric-highlight { color: #4682B4; font-weight: 800; font-size: 1.1rem; }
     
@@ -78,15 +73,38 @@ def col_letter(n):
         string = chr(65 + remainder) + string
     return string
 
+@st.cache_data(ttl=120)
+def get_market_indices():
+    """네이버 금융 메인에서 핵심 4대 지수 스캔"""
+    try:
+        url = "https://finance.naver.com/"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        def parse_idx(box_class):
+            box = soup.select_one(f".{box_class}")
+            if not box: return "0", "0", "text-gray"
+            val = box.select_one(".num").text
+            diff = box.select_one(".num2").text
+            rate = box.select_one(".num3").text
+            blind = box.select_one(".blind")
+            if blind and "상승" in blind.text: return val, f"▲{diff} ({rate})", "text-red"
+            elif blind and "하락" in blind.text: return val, f"▼{diff} ({rate})", "text-blue"
+            return val, f"{diff} ({rate})", "text-gray"
+            
+        return {
+            "KOSPI": parse_idx("kospi_area"), "KOSDAQ": parse_idx("kosdaq_area"),
+            "DOW": parse_idx("dow_area"), "NASDAQ": parse_idx("nasdaq_area")
+        }
+    except: return {}
+
 def fetch_emergency_price(ticker):
     if pd.isna(ticker) or str(ticker).strip() in ["", "0"]: return 0
     clean_ticker = str(int(float(ticker))).zfill(6) if str(ticker).replace('.','').isdigit() else str(ticker).strip()
     try:
         url = f"https://finance.naver.com/item/main.naver?code={clean_ticker}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=2)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        price_tag = soup.select_one(".no_today .blind")
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
+        price_tag = BeautifulSoup(res.text, 'html.parser').select_one(".no_today .blind")
         return int(price_tag.text.replace(',', '')) if price_tag else 0
     except: return 0
 
@@ -102,26 +120,24 @@ def get_gspread_client():
 @st.cache_data(ttl=60)
 def load_data():
     client = get_gspread_client()
-    sheet_url = "https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0"
-    doc = client.open_by_url(sheet_url)
-    sheet = doc.get_worksheet(0)
+    sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
     essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
     df = full_df[[c for c in essential_cols if c in full_df.columns]].copy()
     
-    # 강력한 데이터 클렌징 (유령 데이터 방어)
     for col in essential_cols:
         if col not in df.columns: df[col] = 0
         elif col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', ''), errors='coerce').fillna(0)
+            
+    # [계산 무결성 100% 필터] 합계 행 제외 및 수량이 0인 찌꺼기 행 완전 삭제
+    df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액', na=False)]
+    df = df[df['종목명'].astype(str).str.strip() != '']
+    df = df[df['잔고수량'] > 0] # 이 한 줄이 모든 계산 뻥튀기를 막습니다.
     
     target_yield = '수익률' if '수익률' in full_df.columns else '수익률1' if '수익률1' in full_df.columns else None
     df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0) if target_yield else 0.0
-    
-    # 합계 행, 공백 행 완벽 차단
-    df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액', na=False)]
-    df = df[df['종목명'].astype(str).str.strip() != '']
     return sheet, df, full_df
 
 def get_position_text(now, low, high):
@@ -136,13 +152,24 @@ def get_position_text(now, low, high):
 # --- [3] 관제 화면 기동 ---
 try:
     sheet, df, full_df = load_data()
+    indices = get_market_indices()
     
+    # 상단 헤더
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V18</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V19</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
-    
+        
+    # [신규] 4대 글로벌/국내 지수 전광판 렌더링
+    if indices:
+        idx_html = '<div class="index-container">'
+        for name in ["KOSPI", "KOSDAQ", "DOW", "NASDAQ"]:
+            val, diff, cl = indices.get(name, ("0", "0", "text-gray"))
+            idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
+        idx_html += '</div>'
+        st.markdown(idx_html, unsafe_allow_html=True)
+
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
     processed_data = []
@@ -150,8 +177,10 @@ try:
         now_p = row['현재가2'] if row['현재가2'] != 0 else row['현재가1']
         if now_p == 0 and not any(x in str(row['종목명']) for x in ["현금", "예수금"]):
             now_p = fetch_emergency_price(row.get('종목코드', ''))
+            
         real_yield = ((now_p - row['매수단가']) / row['매수단가'] * 100) if row['매수단가'] > 0 else 0
         real_eval = now_p * row['잔고수량']
+        
         r_dict = row.to_dict()
         r_dict.update({'보정가': now_p, '보정수익률': real_yield, '보정평가액': real_eval})
         processed_data.append(r_dict)
@@ -160,8 +189,11 @@ try:
     
     total_eval = final_df['보정평가액'].sum() if not final_df.empty else 0
     total_cash = final_df[final_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['보정평가액'].sum() if not final_df.empty else 0
-    total_prev = (final_df['전일종가'] * final_df['잔고수량']).sum() if not final_df.empty else 0
-    daily_delta = total_eval - total_prev if total_prev > 0 else 0
+    
+    # 전일비 계산: 전일종가가 있는 정상 종목만 합산
+    valid_prev = final_df[final_df['전일종가'] > 0]
+    total_prev = (valid_prev['전일종가'] * valid_prev['잔고수량']).sum() if not valid_prev.empty else 0
+    daily_delta = valid_prev['보정평가액'].sum() - total_prev if total_prev > 0 else 0
     
     kc1, kc2, kc3 = st.columns(3)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
@@ -219,7 +251,7 @@ try:
                         if k in idx_map: sheet.update_cell(nr, idx_map[k], f'=GOOGLEFINANCE("KRX:{c}", "price")')
                     if '전일종가' in idx_map: sheet.update_cell(nr, idx_map['전일종가'], f'=GOOGLEFINANCE("KRX:{c}", "price") - GOOGLEFINANCE("KRX:{c}", "change")')
                     if '52주최고' in idx_map: sheet.update_cell(nr, idx_map['52주최고'], f'=GOOGLEFINANCE("KRX:{c}", "high52")')
-                    if '52주최저' in idx_map: sheet.update_cell(new_row, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{c}", "low52")')
+                    if '52주최저' in idx_map: sheet.update_cell(nr, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{c}", "low52")')
                 else:
                     for k in ['현재가2', '현재가1']:
                         if k in idx_map: sheet.update_cell(nr, idx_map[k], int(price))
@@ -239,7 +271,7 @@ try:
             st.cache_data.clear()
             st.rerun()
 
-    # --- 순수 HTML/CSS 커스텀 카드 렌더링 ---
+    # --- [상용 MTS급 완벽 비율 카드 렌더링] ---
     if not final_df.empty:
         html_cards = ""
         for _, row in final_df.iterrows():
@@ -249,12 +281,11 @@ try:
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
-                        <div class="card-header-left">
-                            <div class="status-dot dot-gray"></div>
-                            <span class="stock-name">{row['종목명']}</span>
-                        </div>
-                        <div class="card-header-right">
-                            <div class="stock-price">{row['보정평가액']:,.0f}원</div>
+                        <div class="row-layout">
+                            <div class="col-name"><div class="status-dot dot-gray"></div><span class="stock-name" style="color:#94a3b8;">{row['종목명']}</span></div>
+                            <div class="col-price">{row['보정평가액']:,.0f}원</div>
+                            <div class="col-diff text-gray">-</div>
+                            <div class="col-yield text-gray">-</div>
                         </div>
                     </summary>
                 </details>
@@ -266,32 +297,23 @@ try:
                 
                 daily_diff = now_p - prev_p if prev_p > 0 else 0
                 if daily_diff > 0:
-                    diff_str = f"▲{daily_diff:,.0f}"
-                    color_class = "text-red"
-                    dot_class = "dot-red"
+                    diff_str, color_class, dot_class = f"▲{daily_diff:,.0f}", "text-red", "dot-red"
                 elif daily_diff < 0:
-                    diff_str = f"▼{abs(daily_diff):,.0f}"
-                    color_class = "text-blue"
-                    dot_class = "dot-blue"
+                    diff_str, color_class, dot_class = f"▼{abs(daily_diff):,.0f}", "text-blue", "dot-blue"
                 else:
-                    diff_str = "-"
-                    color_class = "text-gray"
-                    dot_class = "dot-gray"
+                    diff_str, color_class, dot_class = "-", "text-gray", "dot-gray"
                     
                 txt, cl = get_position_text(now_p, row['52주최저'], row['52주최고'])
                 
+                # 4열 정렬 UI 적용
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
-                        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-                            <div class="card-header-left">
-                                <div class="status-dot {dot_class}"></div>
-                                <span class="stock-name">{row['종목명']}</span>
-                            </div>
-                            <div class="card-header-right">
-                                <div class="stock-price">{now_p:,.0f}원</div>
-                                <div class="stock-diff {color_class}">{diff_str} │ {yield_v:.2f}%</div>
-                            </div>
+                        <div class="row-layout">
+                            <div class="col-name"><div class="status-dot {dot_class}"></div><span class="stock-name">{row['종목명']}</span></div>
+                            <div class="col-price {color_class}">{now_p:,.0f}</div>
+                            <div class="col-diff {color_class}">{diff_str}</div>
+                            <div class="col-yield {color_class}">{yield_v:.2f}%</div>
                         </div>
                     </summary>
                     <div class="card-body">
