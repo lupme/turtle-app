@@ -4,8 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 
-# --- [1] 프리미엄 관제소 V8.0 설정 ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V8.0", layout="wide")
+# --- [1] 프리미엄 관제소 V8.1 설정 (방어력 강화) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V8.1", layout="wide")
 
 st.markdown("""
     <style>
@@ -26,6 +26,7 @@ st.markdown("""
     .pos-waist { background-color: #f59e0b; color: white; }
     .pos-knee { background-color: #34d399; color: white; }
     .pos-feet { background-color: #10b981; color: white; }
+    .pos-unknown { background-color: #475569; color: white; }
     
     [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.8rem !important; font-weight: 800 !important; }
     @media (max-width: 768px) {
@@ -52,28 +53,37 @@ def load_data():
     sheet = doc.get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
-    # 핵심 지표 추출 (전일종가, 52주최고/최저 포함)
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '잔고수량', '매수단가', '현재가2', '수익률', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    # [핵심 방어 로직] 필요한 열이 시트에 없어도 시스템이 멈추지 않도록 0으로 자동 생성
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    
     df = full_df[[c for c in essential_cols if c in full_df.columns]].copy()
     
-    for col in ['잔고수량', '매수단가', '현재가2', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']:
-        if col in df.columns:
+    for col in essential_cols:
+        if col not in df.columns:
+            df[col] = 0 # 시트에 없는 열은 0으로 방어 처리
+        elif col not in ['계좌번호', '계좌유형', '종목명', '수익률', '수익률1']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', ''), errors='coerce').fillna(0)
     
-    if '수익률' in df.columns:
-        df['수익률_숫자'] = pd.to_numeric(df['수익률'].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0)
+    # 수익률 열 이름이 '수익률'이든 '수익률1'이든 유연하게 감지
+    target_yield = '수익률' if '수익률' in full_df.columns else '수익률1' if '수익률1' in full_df.columns else None
     
+    if target_yield:
+        df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0)
+    else:
+        df['수익률_숫자'] = 0.0 # 둘 다 없어도 에러 방지
+        
     return sheet, df, full_df
 
 # --- [2] 시장 위치 판독 로직 ---
 def get_position_text(now, low, high):
-    if high == low or now == 0: return "측정불가", "pos-waist"
+    if high == 0 or low == 0 or high == low or now == 0: 
+        return "데이터 필요", "pos-unknown"
     pos = (now - low) / (high - low) * 100
-    if pos >= 85: return "머리", "pos-head"
-    if pos >= 65: return "어깨", "pos-shoulder"
-    if pos >= 35: return "허리", "pos-waist"
-    if pos >= 15: return "무릎", "pos-knee"
-    return "발바닥", "pos-feet"
+    if pos >= 85: return "머리 (85% 이상)", "pos-head"
+    if pos >= 65: return "어깨 (과열 진입)", "pos-shoulder"
+    if pos >= 35: return "허리 (평균 시세)", "pos-waist"
+    if pos >= 15: return "무릎 (저점 접근)", "pos-knee"
+    return "발바닥 (극저점)", "pos-feet"
 
 # --- [3] 관제 화면 기동 ---
 try:
@@ -86,7 +96,7 @@ try:
         st.divider()
         mode = st.radio("전술 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
 
-    st.markdown('<div class="top-bar"><div class="witty-title">🐢 TURTLE COMMAND HQ V8.0</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="top-bar"><div class="witty-title">🐢 TURTLE COMMAND HQ V8.1</div></div>', unsafe_allow_html=True)
     
     acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
     selected_type = st.selectbox("📂 섹터 필터", acc_types, label_visibility="collapsed")
@@ -94,14 +104,19 @@ try:
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df = display_df.sort_values(by='수익률_숫자', ascending=False)
 
-    # 계좌별 지표 (KPI Cards + 전일비 반영)
+    # 계좌별 지표 계산
     total_eval = display_df['평가금액'].sum()
     total_prev = (display_df['전일종가'] * display_df['잔고수량']).sum()
     daily_delta = total_eval - total_prev if total_prev > 0 else 0
     
     c1, c2, c3 = st.columns(3)
     c1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    c2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
+    
+    if total_prev > 0:
+        c2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
+    else:
+        c2.metric("전일 대비 증감", "지표 설정 필요", delta=None)
+        
     c3.metric("전략 고지 달성률", f"{(total_eval/target_input*100):.1f}%")
 
     st.divider()
@@ -111,26 +126,33 @@ try:
         st.info("기동 대기 중인 자산이 없습니다.")
     else:
         for _, row in display_df.iterrows():
+            if "현금" in str(row['종목명']): continue
+            
             yield_val = row.get('수익률_숫자', 0)
             ball = "🔴" if yield_val > 0 else "🔵" if yield_val < 0 else "🔘"
             
-            # 위치 판독
-            pos_text, pos_class = get_position_text(row['현재가2'], row['52주최저'], row['52주최고'])
+            now_price = row['현재가2'] if row['현재가2'] != 0 else row['현재가1']
             
-            title = f"{ball} {row['종목명']} │ {row['현재가2']:,.0f}원 │ {yield_val:.2f}%"
+            # 위치 판독
+            pos_text, pos_class = get_position_text(now_price, row['52주최저'], row['52주최고'])
+            
+            title = f"{ball} {row['종목명']} │ {now_price:,.0f}원 │ {yield_val:.2f}%"
             
             with st.expander(title):
-                st.markdown(f'<span class="pos-badge {pos_class}">시세위치: {pos_text}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="pos-badge {pos_class}">시장위치: {pos_text}</span>', unsafe_allow_html=True)
                 sc1, sc2 = st.columns(2)
                 with sc1:
                     st.write(f"📊 **평가금액:** {row['평가금액']:,.0f}원")
                     st.write(f"💰 **투입금액:** {row['매수금액']:,.0f}원")
                 with sc2:
                     st.write(f"🎯 **평균단가:** {row['매수단가']:,.0f}원")
-                    st.write(f"📈 **52주 최고:** {row['52주최고']:,.0f}원")
+                    if row['52주최고'] > 0:
+                        st.write(f"📈 **52주 최고:** {row['52주최고']:,.0f}원")
+                    else:
+                        st.write("📈 **52주 지표:** 구글 시트 추가 필요")
                 st.caption(f"좌표: {row['계좌번호']} / {row['계좌유형']}")
 
-    # --- [4] 사이드바 폼 로직 (V8.0) ---
+    # --- [4] 사이드바 폼 로직 ---
     with st.sidebar:
         with st.form("command_form"):
             acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows()]
@@ -148,12 +170,12 @@ try:
             qty = st.number_input("수량", min_value=0, step=1)
             price = st.number_input("현재가/단가", min_value=0, step=100)
             
-            if st.form_submit_button("명령 하달 (V8.0 Sync)"):
+            if st.form_submit_button("명령 하달 (Sync)"):
                 idx_map = {col: i+1 for i, col in enumerate(full_df.columns)}
                 if "수정" in mode:
                     t_idx = full_df[(full_df['계좌번호'].astype(str) == sel_acc) & (full_df['종목명'] == s_name)].index[0]
-                    sheet.update_cell(t_idx+2, idx_map['잔고수량'], int(qty))
-                    sheet.update_cell(t_idx+2, idx_map['매수단가'], int(price))
+                    if '잔고수량' in idx_map: sheet.update_cell(t_idx+2, idx_map['잔고수량'], int(qty))
+                    if '매수단가' in idx_map: sheet.update_cell(t_idx+2, idx_map['매수단가'], int(price))
                 elif "매매" in mode:
                     t_idx = full_df[(full_df['계좌번호'].astype(str) == sel_acc) & (full_df['종목명'] == s_name)].index[0]
                     old_qty, old_avg = full_df.at[t_idx, '잔고수량'], full_df.at[t_idx, '매수단가']
@@ -163,18 +185,18 @@ try:
                     else:
                         new_qty = max(0, old_qty - qty)
                         new_avg = old_avg
-                    sheet.update_cell(t_idx+2, idx_map['잔고수량'], int(new_qty))
-                    sheet.update_cell(t_idx+2, idx_map['매수단가'], int(new_avg))
+                    if '잔고수량' in idx_map: sheet.update_cell(t_idx+2, idx_map['잔고수량'], int(new_qty))
+                    if '매수단가' in idx_map: sheet.update_cell(t_idx+2, idx_map['매수단가'], int(new_avg))
                 elif "신규" in mode:
                     if s_name:
                         new_row = len(full_df) + 2
-                        sheet.update_cell(new_row, idx_map['계좌번호'], sel_acc)
+                        if '계좌번호' in idx_map: sheet.update_cell(new_row, idx_map['계좌번호'], sel_acc)
                         acc_type = full_df[full_df['계좌번호'].astype(str) == sel_acc]['계좌유형'].iloc[0] if not full_df[full_df['계좌번호'].astype(str) == sel_acc].empty else "수동"
-                        sheet.update_cell(new_row, idx_map['계좌유형'], acc_type)
-                        sheet.update_cell(new_row, idx_map['종목명'], s_name)
+                        if '계좌유형' in idx_map: sheet.update_cell(new_row, idx_map['계좌유형'], acc_type)
+                        if '종목명' in idx_map: sheet.update_cell(new_row, idx_map['종목명'], s_name)
                         if s_code and '종목코드' in idx_map: sheet.update_cell(new_row, idx_map['종목코드'], str(s_code))
-                        sheet.update_cell(new_row, idx_map['잔고수량'], int(qty))
-                        sheet.update_cell(new_row, idx_map['매수단가'], int(price))
+                        if '잔고수량' in idx_map: sheet.update_cell(new_row, idx_map['잔고수량'], int(qty))
+                        if '매수단가' in idx_map: sheet.update_cell(new_row, idx_map['매수단가'], int(price))
                 st.cache_data.clear()
                 st.rerun()
 
