@@ -6,41 +6,71 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-# --- [1] 프리미엄 관제소 V17.0 (계좌 연동 및 수식 주입 강화) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V17.0", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 프리미엄 관제소 V18.0 (순수 HTML/CSS 커스텀 엔진) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V18.0", layout="wide", initial_sidebar_state="expanded")
 
+# 스트림릿 기본 UI를 덮어버리는 압도적 프리미엄 CSS
 st.markdown("""
     <style>
+    /* 전체 테마 통제 */
     .stApp { background-color: #020617; color: #f1f5f9; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
-    .hq-title { font-size: 1.2rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; padding-top: 10px; }
+    .hq-title { font-size: 1.4rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; padding-top: 10px; margin-bottom: 20px; }
     
-    [data-testid="stExpander"] {
-        background-color: #0f172a !important;
-        border: 1px solid #1e293b !important;
-        border-left: 4px solid #4682B4 !important;
-        border-radius: 8px !important; margin-bottom: 12px !important;
+    /* [핵심] 커스텀 아코디언 (HTML details 태그 활용) */
+    details.premium-card {
+        background-color: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        margin-bottom: 14px;
+        transition: all 0.2s ease-in-out;
+        overflow: hidden;
     }
-    [data-testid="stExpander"] summary { padding: 1rem !important; list-style-type: none !important; }
-    [data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 700 !important; color: #f8fafc !important; }
-    [data-testid="stExpanderDetails"] { background-color: #020617 !important; padding: 1.5rem !important; border-top: 1px solid #1e293b !important; }
-
-    .metric-box { margin-bottom: 15px; }
-    .metric-label { color: #64748b; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; text-transform: uppercase; }
-    .metric-value { color: #f8fafc; font-size: 1.15rem; font-weight: 700; }
-    .metric-value-blue { color: #4682B4; font-size: 1.15rem; font-weight: 800; }
-    .metric-value-gray { color: #94a3b8; font-size: 1rem; font-weight: 500; }
-
-    .pos-badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 15px; display: inline-block; }
-    .pos-head { background-color: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid #ef4444; }
-    .pos-shoulder { background-color: rgba(248, 113, 113, 0.2); color: #f87171; border: 1px solid #f87171; }
-    .pos-waist { background-color: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; }
-    .pos-knee { background-color: rgba(52, 211, 153, 0.2); color: #34d399; border: 1px solid #34d399; }
-    .pos-feet { background-color: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; }
+    details.premium-card:hover { border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); }
+    
+    /* 카드 헤더 (토스/위불 스타일) */
+    details.premium-card summary {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 18px 20px; cursor: pointer; list-style: none; user-select: none;
+    }
+    details.premium-card summary::-webkit-details-marker { display: none; } /* 기본 화살표 완벽 제거 */
+    
+    .card-header-left { display: flex; align-items: center; gap: 12px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-red { background-color: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
+    .dot-blue { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
+    .dot-gray { background-color: #94a3b8; }
+    .stock-name { font-size: 1.15rem; font-weight: 700; color: #f8fafc; }
+    
+    .card-header-right { text-align: right; }
+    .stock-price { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
+    .stock-diff { font-size: 0.9rem; font-weight: 600; margin-top: 2px; }
+    .text-red { color: #ef4444; }
+    .text-blue { color: #3b82f6; }
+    .text-gray { color: #94a3b8; }
+    
+    /* 카드 내부 (상세 지표) */
+    .card-body {
+        background-color: #020617;
+        padding: 20px; border-top: 1px solid #1e293b;
+    }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .metric-box { display: flex; flex-direction: column; }
+    .metric-label { font-size: 0.8rem; font-weight: 600; color: #64748b; margin-bottom: 4px; text-transform: uppercase; }
+    .metric-value { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
+    .metric-highlight { color: #4682B4; font-weight: 800; font-size: 1.1rem; }
+    
+    .pos-badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 16px; display: inline-block; border: 1px solid; }
+    .pos-head { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+    .pos-shoulder { background-color: rgba(248, 113, 113, 0.1); color: #f87171; border-color: rgba(248, 113, 113, 0.3); }
+    .pos-waist { background-color: rgba(245, 158, 11, 0.1); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
+    .pos-knee { background-color: rgba(52, 211, 153, 0.1); color: #34d399; border-color: rgba(52, 211, 153, 0.3); }
+    .pos-feet { background-color: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.3); }
+    
+    [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.8rem !important; font-weight: 800 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 시트 열 번호를 알파벳(A, B, C...)으로 변환
 def col_letter(n):
     string = ""
     while n > 0:
@@ -80,32 +110,35 @@ def load_data():
     essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '평가금액', '매수금액', '평가손익', '전일종가', '52주최고', '52주최저']
     df = full_df[[c for c in essential_cols if c in full_df.columns]].copy()
     
+    # 강력한 데이터 클렌징 (유령 데이터 방어)
     for col in essential_cols:
         if col not in df.columns: df[col] = 0
-        elif col not in ['계좌번호', '계좌유형', '종목명', '종목코드', '수익률', '수익률1']:
+        elif col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', ''), errors='coerce').fillna(0)
     
     target_yield = '수익률' if '수익률' in full_df.columns else '수익률1' if '수익률1' in full_df.columns else None
     df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0) if target_yield else 0.0
+    
+    # 합계 행, 공백 행 완벽 차단
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액', na=False)]
     df = df[df['종목명'].astype(str).str.strip() != '']
     return sheet, df, full_df
 
 def get_position_text(now, low, high):
-    if high == 0 or low == 0 or high <= low or now == 0: return "지표 부족", "pos-unknown"
+    if high == 0 or low == 0 or high <= low or now == 0: return "지표 수집중", "pos-unknown"
     pos = (now - low) / (high - low) * 100
-    if pos >= 85: return f"머리 ({pos:.0f}%↑)", "pos-head"
+    if pos >= 85: return f"머리 (고점 {pos:.0f}%)", "pos-head"
     if pos >= 65: return f"어깨 ({pos:.0f}%)", "pos-shoulder"
     if pos >= 35: return f"허리 ({pos:.0f}%)", "pos-waist"
     if pos >= 15: return f"무릎 ({pos:.0f}%)", "pos-knee"
-    return f"발바닥 ({pos:.0f}%↓)", "pos-feet"
+    return f"발바닥 (저점 {pos:.0f}%)", "pos-feet"
 
 # --- [3] 관제 화면 기동 ---
 try:
     sheet, df, full_df = load_data()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V17</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V18</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -124,23 +157,27 @@ try:
         processed_data.append(r_dict)
 
     final_df = pd.DataFrame(processed_data).sort_values(by='보정수익률', ascending=False) if processed_data else pd.DataFrame()
+    
     total_eval = final_df['보정평가액'].sum() if not final_df.empty else 0
     total_cash = final_df[final_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['보정평가액'].sum() if not final_df.empty else 0
+    total_prev = (final_df['전일종가'] * final_df['잔고수량']).sum() if not final_df.empty else 0
+    daily_delta = total_eval - total_prev if total_prev > 0 else 0
     
     kc1, kc2, kc3 = st.columns(3)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    kc2.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
+    if total_prev > 0: kc2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
+    else: kc2.metric("전일 대비 증감", "지표 수집중", delta=None)
+    kc3.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
-        kc3.metric("목표 달성률", f"{(total_eval/target_val*100):.1f}%")
+        st.markdown(f"<div style='color:#4682B4; font-size:1.2rem; font-weight:800; margin-top:-10px; margin-bottom:20px;'>목표 달성률: {(total_eval/target_val*100):.1f}%</div>", unsafe_allow_html=True)
         st.divider()
         mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
         
-        # [실시간 연동을 위해 폼을 제거]
         acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
-        sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts)
+        sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts) if acc_opts else ""
         sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
         
         if "신규" not in mode:
@@ -165,23 +202,25 @@ try:
                 sheet.update_cell(nr, idx_map['잔고수량'], int(qty))
                 sheet.update_cell(nr, idx_map['매수단가'], int(price))
                 
-                # 수식 자동 주입 엔진 가동
-                q_l, b_l, c_l = col_letter(idx_map['잔고수량']), col_letter(idx_map['매수단가']), col_letter(idx_map.get('현재가2', idx_map['현재가1']))
-                ba_l, ea_l, p_l = col_letter(idx_map['매수금액']), col_letter(idx_map['평가금액']), col_letter(idx_map['평가손익'])
+                q_l, b_l, c_l = col_letter(idx_map['잔고수량']), col_letter(idx_map['매수단가']), col_letter(idx_map.get('현재가2', idx_map.get('현재가1', 0)))
+                ba_l, ea_l, p_l = col_letter(idx_map.get('매수금액',0)), col_letter(idx_map.get('평가금액',0)), col_letter(idx_map.get('평가손익',0))
                 y_idx = idx_map.get('수익률', idx_map.get('수익률1'))
                 y_l = col_letter(y_idx) if y_idx else None
 
-                sheet.update_cell(nr, idx_map['매수금액'], f"={q_l}{nr}*{b_l}{nr}")
-                sheet.update_cell(nr, idx_map['평가금액'], f"={q_l}{nr}*{c_l}{nr}")
-                sheet.update_cell(nr, idx_map['평가손익'], f"={ea_l}{nr}-{ba_l}{nr}")
+                if ba_l: sheet.update_cell(nr, idx_map['매수금액'], f"={q_l}{nr}*{b_l}{nr}")
+                if ea_l: sheet.update_cell(nr, idx_map['평가금액'], f"={q_l}{nr}*{c_l}{nr}")
+                if p_l: sheet.update_cell(nr, idx_map['평가손익'], f"={ea_l}{nr}-{ba_l}{nr}")
                 if y_l: sheet.update_cell(nr, y_idx, f"=IFERROR({p_l}{nr}/{ba_l}{nr}, 0)")
                 
                 if s_code:
                     c = str(s_code).strip().zfill(6)
-                    sheet.update_cell(nr, idx_map['종목코드'], c)
+                    if '종목코드' in idx_map: sheet.update_cell(nr, idx_map['종목코드'], c)
                     for k in ['현재가2', '현재가1']:
                         if k in idx_map: sheet.update_cell(nr, idx_map[k], f'=GOOGLEFINANCE("KRX:{c}", "price")')
-                else: # 수동 자산일 경우 입력단가를 시세로 고정
+                    if '전일종가' in idx_map: sheet.update_cell(nr, idx_map['전일종가'], f'=GOOGLEFINANCE("KRX:{c}", "price") - GOOGLEFINANCE("KRX:{c}", "change")')
+                    if '52주최고' in idx_map: sheet.update_cell(nr, idx_map['52주최고'], f'=GOOGLEFINANCE("KRX:{c}", "high52")')
+                    if '52주최저' in idx_map: sheet.update_cell(new_row, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{c}", "low52")')
+                else:
                     for k in ['현재가2', '현재가1']:
                         if k in idx_map: sheet.update_cell(nr, idx_map[k], int(price))
             
@@ -200,20 +239,74 @@ try:
             st.cache_data.clear()
             st.rerun()
 
+    # --- 순수 HTML/CSS 커스텀 카드 렌더링 ---
     if not final_df.empty:
+        html_cards = ""
         for _, row in final_df.iterrows():
             is_c = any(x in str(row['종목명']) for x in ["현금", "예수금"])
-            t = f"💵 {row['종목명']} │ {row['보정평가액']:,.0f}원" if is_c else f"📂 {row['종목명']} │ {row['보정가']:,.0f}원 │ {row['보정수익률']:.2f}%"
-            with st.expander(t):
-                if not is_c:
-                    txt, cl = get_position_text(row['보정가'], row['52주최저'], row['52주최고'])
-                    st.markdown(f'<div class="pos-badge {cl}">시세위치: {txt}</div>', unsafe_allow_html=True)
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown(f"<div class='metric-label'>평가 금액</div><div class='metric-value-blue'>{row['보정평가액']:,.0f}원</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-label'>투입 원금</div><div class='metric-value'>{row['매수금액']:,.0f}원</div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<div class='metric-label'>평균 단가</div><div class='metric-value'>{row['매수단가']:,.0f}원</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='metric-label'>52주 최고/최저</div><div class='metric-value'>{row['52주최고']:,.0f} / {row['52주최저']:,.0f}</div>", unsafe_allow_html=True)
+            
+            if is_c:
+                html_cards += f"""
+                <details class="premium-card">
+                    <summary>
+                        <div class="card-header-left">
+                            <div class="status-dot dot-gray"></div>
+                            <span class="stock-name">{row['종목명']}</span>
+                        </div>
+                        <div class="card-header-right">
+                            <div class="stock-price">{row['보정평가액']:,.0f}원</div>
+                        </div>
+                    </summary>
+                </details>
+                """
+            else:
+                yield_v = row['보정수익률']
+                now_p = row['보정가']
+                prev_p = row['전일종가']
+                
+                daily_diff = now_p - prev_p if prev_p > 0 else 0
+                if daily_diff > 0:
+                    diff_str = f"▲{daily_diff:,.0f}"
+                    color_class = "text-red"
+                    dot_class = "dot-red"
+                elif daily_diff < 0:
+                    diff_str = f"▼{abs(daily_diff):,.0f}"
+                    color_class = "text-blue"
+                    dot_class = "dot-blue"
+                else:
+                    diff_str = "-"
+                    color_class = "text-gray"
+                    dot_class = "dot-gray"
+                    
+                txt, cl = get_position_text(now_p, row['52주최저'], row['52주최고'])
+                
+                html_cards += f"""
+                <details class="premium-card">
+                    <summary>
+                        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                            <div class="card-header-left">
+                                <div class="status-dot {dot_class}"></div>
+                                <span class="stock-name">{row['종목명']}</span>
+                            </div>
+                            <div class="card-header-right">
+                                <div class="stock-price">{now_p:,.0f}원</div>
+                                <div class="stock-diff {color_class}">{diff_str} │ {yield_v:.2f}%</div>
+                            </div>
+                        </div>
+                    </summary>
+                    <div class="card-body">
+                        <div class="pos-badge {cl}">📍 시세위치: {txt}</div>
+                        <div class="metric-grid">
+                            <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-highlight">{row['보정평가액']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">투입 원금</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">평균 단가</div><div class="metric-value">{row['매수단가']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">보유 수량</div><div class="metric-value">{row['잔고수량']:,.0f}주</div></div>
+                            <div class="metric-box"><div class="metric-label">52주 최고가</div><div class="metric-value">{row['52주최고']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">52주 최저가</div><div class="metric-value">{row['52주최저']:,.0f}원</div></div>
+                        </div>
+                    </div>
+                </details>
+                """
+        st.markdown(html_cards, unsafe_allow_html=True)
 
 except Exception as e: st.error(f"함대 기동 중지: {e}")
