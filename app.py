@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- [1] 시스템 설정 및 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V22", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V23", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -21,24 +21,38 @@ st.markdown("""
     .index-val { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
-    [data-testid="stExpander"] { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-left: 4px solid #4682B4 !important; border-radius: 8px !important; margin-bottom: 12px !important; }
-    [data-testid="stExpander"] summary { padding: 1rem !important; list-style-type: none !important; }
-    [data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 700 !important; color: #f8fafc !important; width: 100%; }
-    [data-testid="stExpanderDetails"] { background-color: #020617 !important; padding: 1.5rem !important; border-top: 1px solid #1e293b !important; }
-
-    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
-    .metric-box { display: flex; flex-direction: column; }
-    .metric-label { font-size: 0.8rem; font-weight: 600; color: #6C7A89; margin-bottom: 4px; text-transform: uppercase; }
-    .metric-value { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; }
-    .metric-value-blue { color: #4682B4; font-size: 1.15rem; font-weight: 800; }
+    .list-header { color: #6C7A89; font-size: 0.85rem; font-weight: 600; padding: 0 20px 10px 20px; border-bottom: 1px solid #1e293b; margin-bottom: 10px; }
+    .row-layout { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; }
+    .col-name { width: 35%; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+    .col-price { width: 22%; text-align: right; font-size: 1.05rem; font-weight: 800; color: #f8fafc; }
+    .col-diff { width: 23%; text-align: right; font-size: 0.9rem; font-weight: 700; }
+    .col-yield { width: 20%; text-align: right; font-size: 1.05rem; font-weight: 800; }
     
-    .pos-badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 15px; display: inline-block; border: 1px solid; }
+    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
+    details.premium-card:hover { border-color: #4682B4; }
+    details.premium-card summary { display: flex; align-items: center; padding: 16px 20px; cursor: pointer; list-style: none; }
+    details.premium-card summary::-webkit-details-marker { display: none; }
+    
+    .status-dot { min-width: 8px; height: 8px; border-radius: 50%; }
+    .dot-red { background-color: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
+    .dot-blue { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
+    .dot-gray { background-color: #6C7A89; }
+    .stock-name { font-size: 1.05rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .text-red { color: #ef4444; } .text-blue { color: #3b82f6; } .text-gray { color: #6C7A89; }
+    
+    .card-body { background-color: #020617; padding: 20px; border-top: 1px solid #1e293b; border-radius: 0 0 12px 12px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .metric-box { display: flex; flex-direction: column; }
+    .metric-label { font-size: 0.8rem; font-weight: 600; color: #6C7A89; margin-bottom: 4px; }
+    .metric-value { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
+    .metric-highlight { color: #4682B4; font-weight: 800; font-size: 1.1rem; }
+    
+    .pos-badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 16px; display: inline-block; border: 1px solid; }
     .pos-head { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
     .pos-waist { background-color: rgba(245, 158, 11, 0.1); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
     .pos-feet { background-color: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.3); }
-    .pos-unknown { background-color: rgba(108, 122, 137, 0.1); color: #6C7A89; border-color: rgba(108, 122, 137, 0.3); }
     
-    .text-red { color: #ef4444; } .text-blue { color: #3b82f6; } .text-gray { color: #6C7A89; }
     [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.8rem !important; font-weight: 800 !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -54,42 +68,39 @@ def col_letter(n):
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray")}
     try:
-        url = "https://finance.naver.com/"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-        soup = BeautifulSoup(res.text, 'html.parser')
+        url_main = "https://finance.naver.com/"
+        res_main = requests.get(url_main, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+        soup_main = BeautifulSoup(res_main.text, 'html.parser')
+        
         for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
-            box = soup.select_one(cls)
+            box = soup_main.select_one(cls)
             if box:
                 val = box.select_one(".num").text
                 diff = box.select_one(".num2").text
                 rate = box.select_one(".num3").text
-                cl = "text-red" if "상승" in box.select_one(".blind").text else "text-blue" if "하락" in box.select_one(".blind").text else "text-gray"
-                sign = "▲" if "상승" in box.select_one(".blind").text else "▼" if "하락" in box.select_one(".blind").text else ""
+                b_txt = box.select_one(".blind").text if box.select_one(".blind") else ""
+                cl = "text-red" if "상승" in b_txt else "text-blue" if "하락" in b_txt else "text-gray"
+                sign = "▲" if "상승" in b_txt else "▼" if "하락" in b_txt else ""
                 indices[code] = (val, f"{sign}{diff} ({rate})", cl)
+                
         for code, sym in [("DOW", "DJI@DJI"), ("NASDAQ", "NAS@IXIC")]:
             res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
             s_w = BeautifulSoup(res_w.text, 'html.parser')
             em = s_w.select_one("p.no_today em")
             if em:
                 val = em.text.strip()
-                diff_em = s_w.select_one("p.no_exday em")
-                if diff_em:
-                    sign = "▲" if "상승" in diff_em.text else "▼" if "하락" in diff_em.text else ""
-                    cl = "text-red" if "상승" in diff_em.text else "text-blue" if "하락" in diff_em.text else "text-gray"
-                    diff = diff_em.select_one("span.blind").text if diff_em.select_one("span.blind") else "0"
-                    indices[code] = (val, f"{sign}{diff}", cl)
+                diff_area = s_w.select_one("p.no_exday")
+                if diff_area:
+                    ems = diff_area.find_all("em")
+                    if len(ems) >= 2:
+                        diff_val = ems[0].text.strip()
+                        rate_val = ems[1].text.strip()
+                        sign_txt = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
+                        sign = "▲" if "상승" in sign_txt else "▼" if "하락" in sign_txt else ""
+                        cl = "text-red" if "상승" in sign_txt else "text-blue" if "하락" in sign_txt else "text-gray"
+                        indices[code] = (val, f"{sign}{diff_val} ({rate_val})", cl)
     except: pass
     return indices
-
-def fetch_emergency_price(ticker):
-    if pd.isna(ticker) or str(ticker).strip() in ["", "0"]: return 0
-    clean_ticker = str(int(float(ticker))).zfill(6) if str(ticker).replace('.','').isdigit() else str(ticker).strip()
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={clean_ticker}"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
-        price_tag = BeautifulSoup(res.text, 'html.parser').select_one(".no_today .blind")
-        return int(price_tag.text.replace(',', '')) if price_tag else 0
-    except: return 0
 
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
@@ -106,8 +117,8 @@ def load_data():
     
     full_df.columns = full_df.columns.str.strip()
     
-    # [수정 완료] 수익률, 수익률1을 반드시 포함시켜 KeyError 완벽 방어
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    # 🚨 현재가1, 수익률1 등 불필요한 참조 제거. 오직 사령관님의 원본 구조만 참조
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '수익률2', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
     
     for col in essential_cols:
         if col not in full_df.columns: full_df[col] = 0
@@ -116,18 +127,17 @@ def load_data():
     for col in essential_cols:
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
-            
-    target_yield = next((col for col in ['수익률', '수익률1'] if col in full_df.columns), None)
-    df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0) if target_yield else 0.0
 
+    # 찌꺼기 데이터 필터링
+    invalid_keywords = '합계|총계|총액|잔고|총자산'
     df = df[df['종목명'].astype(str).str.strip() != '']
-    df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액', na=False)]
+    df = df[~df['종목명'].astype(str).str.contains(invalid_keywords, na=False)]
     df = df[df['잔고수량'] > 0] 
     
     return sheet, df, full_df
 
 def get_position_text(now, low, high):
-    if high == 0 or low == 0 or high <= low or now == 0: return "데이터 수집중", "pos-unknown"
+    if high == 0 or low == 0 or high <= low or now == 0: return "지표 수집중", "pos-unknown"
     pos = (now - low) / (high - low) * 100
     if pos >= 85: return f"머리 (고점 {pos:.0f}%)", "pos-head"
     if pos >= 35: return f"허리 (평균 시세 {pos:.0f}%)", "pos-waist"
@@ -139,7 +149,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V22</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V23</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -154,37 +164,13 @@ try:
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
-    processed_data = []
-    for _, row in display_df.iterrows():
-        now_p = row['현재가2'] if row['현재가2'] != 0 else row['현재가1']
-        if now_p == 0 and not any(x in str(row['종목명']) for x in ["현금", "예수금"]):
-            now_p = fetch_emergency_price(row.get('종목코드', ''))
-        real_yield = ((now_p - row['매수단가']) / row['매수단가'] * 100) if row['매수단가'] > 0 else 0
-        real_eval = now_p * row['잔고수량']
-        
-        r_dict = row.to_dict()
-        r_dict.update({'보정가': now_p, '보정수익률': real_yield, '보정평가액': real_eval})
-        processed_data.append(r_dict)
-
-    final_df = pd.DataFrame(processed_data).sort_values(by='보정수익률', ascending=False) if processed_data else pd.DataFrame()
+    # 파이썬 재계산 로직 삭제: 구글 시트의 원본 데이터를 그대로 100% 신뢰하여 사용
+    total_eval = display_df['평가금액'].sum()
+    total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
-    # 🚨 [긴급 디버그 모드] 사령관님의 요청에 따라 데이터 전체를 화면에 띄웁니다.
-    with st.expander("🚨 긴급 스프레드시트 원본 검수 (1,000억 오류 추적기)", expanded=False):
-        st.markdown("<h4 style='color:#ef4444;'>1. 구글 시트 원본 데이터 (필터링 전)</h4>", unsafe_allow_html=True)
-        st.write("아래 표에서 '잔고수량'이나 '현재가'가 비정상적으로 큰 행(Row)을 찾아내십시오.")
-        st.dataframe(full_df[['종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '평가금액']])
-        
-        st.markdown("<h4 style='color:#3b82f6;'>2. 파이썬 계산 결과 (잔고수량 x 시세)</h4>", unsafe_allow_html=True)
-        st.write("파이썬이 최종적으로 합산한 '보정평가액'입니다. 여기서 1,000억 대 숫자를 만드는 종목을 식별하십시오.")
-        if not final_df.empty:
-            st.dataframe(final_df[['종목명', '잔고수량', '보정가', '보정평가액']])
-
-    total_eval = final_df['보정평가액'].sum() if not final_df.empty else 0
-    total_cash = final_df[final_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['보정평가액'].sum() if not final_df.empty else 0
-    
-    valid_prev = final_df[final_df['전일종가'] > 0]
+    valid_prev = display_df[display_df['전일종가'] > 0]
     total_prev = (valid_prev['전일종가'] * valid_prev['잔고수량']).sum() if not valid_prev.empty else 0
-    daily_delta = valid_prev['보정평가액'].sum() - total_prev if total_prev > 0 else 0
+    daily_delta = valid_prev['평가금액'].sum() - total_prev if total_prev > 0 else 0
     
     kc1, kc2, kc3 = st.columns(3)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
@@ -231,27 +217,27 @@ try:
                 sheet.update_cell(nr, idx_map['잔고수량'], int(qty_val))
                 sheet.update_cell(nr, idx_map['매수단가'], int(price_val))
                 
-                q_l, b_l, c_l = col_letter(idx_map['잔고수량']), col_letter(idx_map['매수단가']), col_letter(idx_map.get('현재가2', idx_map.get('현재가1', 0)))
+                # 수식 주입 (현재가2 우선 반영)
+                q_l, b_l = col_letter(idx_map['잔고수량']), col_letter(idx_map['매수단가'])
+                c_l = col_letter(idx_map['현재가2']) if '현재가2' in idx_map else ""
                 ba_l, ea_l, p_l = col_letter(idx_map.get('매수금액',0)), col_letter(idx_map.get('평가금액',0)), col_letter(idx_map.get('평가손익',0))
-                y_idx = idx_map.get('수익률', idx_map.get('수익률1', 0))
-                y_l = col_letter(y_idx) if y_idx else None
+                y_idx = idx_map.get('수익률2', 0)
+                y_l = col_letter(y_idx) if y_idx else ""
 
                 if ba_l: sheet.update_cell(nr, idx_map['매수금액'], f"={q_l}{nr}*{b_l}{nr}")
-                if ea_l: sheet.update_cell(nr, idx_map['평가금액'], f"={q_l}{nr}*{c_l}{nr}")
-                if p_l: sheet.update_cell(nr, idx_map['평가손익'], f"={ea_l}{nr}-{ba_l}{nr}")
-                if y_l: sheet.update_cell(nr, y_idx, f"=IFERROR({p_l}{nr}/{ba_l}{nr}, 0)")
+                if ea_l and c_l: sheet.update_cell(nr, idx_map['평가금액'], f"={q_l}{nr}*{c_l}{nr}")
+                if p_l and ea_l and ba_l: sheet.update_cell(nr, idx_map['평가손익'], f"={ea_l}{nr}-{ba_l}{nr}")
+                if y_l and p_l and ba_l: sheet.update_cell(nr, y_idx, f"=IFERROR({p_l}{nr}/{ba_l}{nr}, 0)")
                 
                 if s_code:
                     c = str(s_code).strip().zfill(6)
                     if '종목코드' in idx_map: sheet.update_cell(nr, idx_map['종목코드'], c)
-                    for k in ['현재가2', '현재가1']:
-                        if k in idx_map: sheet.update_cell(nr, idx_map[k], f'=GOOGLEFINANCE("KRX:{c}", "price")')
+                    if '현재가2' in idx_map: sheet.update_cell(nr, idx_map['현재가2'], f'=GOOGLEFINANCE("KRX:{c}", "price")')
                     if '전일종가' in idx_map: sheet.update_cell(nr, idx_map['전일종가'], f'=GOOGLEFINANCE("KRX:{c}", "price") - GOOGLEFINANCE("KRX:{c}", "change")')
                     if '52주최고' in idx_map: sheet.update_cell(nr, idx_map['52주최고'], f'=GOOGLEFINANCE("KRX:{c}", "high52")')
                     if '52주최저' in idx_map: sheet.update_cell(nr, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{c}", "low52")')
                 else:
-                    for k in ['현재가2', '현재가1']:
-                        if k in idx_map: sheet.update_cell(nr, idx_map[k], int(price_val))
+                    if '현재가2' in idx_map: sheet.update_cell(nr, idx_map['현재가2'], int(price_val))
             
             elif s_name != "없음":
                 ti = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index[0]
@@ -268,40 +254,72 @@ try:
             st.cache_data.clear()
             st.rerun()
 
-    if not final_df.empty:
-        for _, row in final_df.iterrows():
+    if not display_df.empty:
+        st.markdown("""
+        <div class="row-layout list-header">
+            <div class="col-name">종목명</div>
+            <div class="col-price">현재가</div>
+            <div class="col-diff">당일비(%)</div>
+            <div class="col-yield">수익률</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        display_df = display_df.sort_values(by='수익률2', ascending=False)
+        
+        html_cards = ""
+        for _, row in display_df.iterrows():
             is_c = any(x in str(row['종목명']) for x in ["현금", "예수금"])
-            yield_v = row['보정수익률']
-            now_p = row['보정가']
-            prev_p = row['전일종가']
-            
-            daily_diff = now_p - prev_p if prev_p > 0 else 0
-            daily_rate = (daily_diff / prev_p * 100) if prev_p > 0 else 0
-            
-            if daily_diff > 0: diff_str = f"▲{daily_diff:,.0f} (+{daily_rate:.2f}%)"
-            elif daily_diff < 0: diff_str = f"▼{abs(daily_diff):,.0f} ({daily_rate:.2f}%)"
-            else: diff_str = "-"
             
             if is_c:
-                title = f"💵 {row['종목명']} │ {row['보정평가액']:,.0f}원"
+                html_cards += f"""
+                <details class="premium-card">
+                    <summary>
+                        <div class="row-layout">
+                            <div class="col-name"><div class="status-dot dot-gray"></div><span class="stock-name text-gray">{row['종목명']}</span></div>
+                            <div class="col-price">{row['평가금액']:,.0f}원</div>
+                            <div class="col-diff text-gray">-</div>
+                            <div class="col-yield text-gray">-</div>
+                        </div>
+                    </summary>
+                </details>
+                """
             else:
-                mark = "🔴" if yield_v > 0 else "🔵" if yield_v < 0 else "🔘"
-                title = f"{mark} {row['종목명']} │ {now_p:,.0f}원 {diff_str} │ {yield_v:.2f}%"
-            
-            with st.expander(title):
-                if not is_c:
-                    txt, cl = get_position_text(now_p, row['52주최저'], row['52주최고'])
-                    st.markdown(f'<div class="pos-badge {cl}">📍 시세위치: {txt}</div>', unsafe_allow_html=True)
+                yield_v = row['수익률2']
+                now_p = row['현재가2']
+                prev_p = row['전일종가']
                 
-                st.markdown(f"""
-                <div class="metric-grid">
-                    <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-value-blue">{row['보정평가액']:,.0f}원</div></div>
-                    <div class="metric-box"><div class="metric-label">투입 원금</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
-                    <div class="metric-box"><div class="metric-label">평균 단가</div><div class="metric-value">{row['매수단가']:,.0f}원</div></div>
-                    <div class="metric-box"><div class="metric-label">보유 수량</div><div class="metric-value">{row['잔고수량']:,.0f}주</div></div>
-                    <div class="metric-box"><div class="metric-label">52주 최고가</div><div class="metric-value">{row['52주최고']:,.0f}원</div></div>
-                    <div class="metric-box"><div class="metric-label">52주 최저가</div><div class="metric-value">{row['52주최저']:,.0f}원</div></div>
-                </div>
-                """, unsafe_allow_html=True)
+                daily_diff = now_p - prev_p if prev_p > 0 else 0
+                daily_rate = (daily_diff / prev_p * 100) if prev_p > 0 else 0
+                
+                if daily_diff > 0: diff_str, color_class, dot_class = f"▲{daily_diff:,.0f} (+{daily_rate:.2f}%)", "text-red", "dot-red"
+                elif daily_diff < 0: diff_str, color_class, dot_class = f"▼{abs(daily_diff):,.0f} ({daily_rate:.2f}%)", "text-blue", "dot-blue"
+                else: diff_str, color_class, dot_class = "-", "text-gray", "dot-gray"
+                    
+                txt, cl = get_position_text(now_p, row['52주최저'], row['52주최고'])
+                
+                html_cards += f"""
+                <details class="premium-card">
+                    <summary>
+                        <div class="row-layout">
+                            <div class="col-name"><div class="status-dot {dot_class}"></div><span class="stock-name">{row['종목명']}</span></div>
+                            <div class="col-price {color_class}">{now_p:,.0f}</div>
+                            <div class="col-diff {color_class}">{diff_str}</div>
+                            <div class="col-yield {color_class}">{yield_v:.2f}%</div>
+                        </div>
+                    </summary>
+                    <div class="card-body">
+                        <div class="pos-badge {cl}">📍 시세위치: {txt}</div>
+                        <div class="metric-grid">
+                            <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-highlight">{row['평가금액']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">투입 원금</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">평균 단가</div><div class="metric-value">{row['매수단가']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">보유 수량</div><div class="metric-value">{row['잔고수량']:,.0f}주</div></div>
+                            <div class="metric-box"><div class="metric-label">52주 최고가</div><div class="metric-value">{row['52주최고']:,.0f}원</div></div>
+                            <div class="metric-box"><div class="metric-label">52주 최저가</div><div class="metric-value">{row['52주최저']:,.0f}원</div></div>
+                        </div>
+                    </div>
+                </details>
+                """
+        st.markdown(html_cards, unsafe_allow_html=True)
 
 except Exception as e: st.error(f"함대 기동 중지: {e}")
