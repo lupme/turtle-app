@@ -7,83 +7,98 @@ import requests
 from bs4 import BeautifulSoup
 import time
 
-# --- [1] 시스템 설정 및 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V45", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS (모바일 압축 및 2x2 그리드 최적화) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V46", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     
-    .hq-title { font-size: 1.4rem; color: rgb(70,130,180); font-weight: 800; letter-spacing: 1px; padding-top: 10px; margin-bottom: 20px; }
+    .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; letter-spacing: 1px; padding-top: 5px; margin-bottom: 15px; }
     
-    .index-container { display: flex; justify-content: space-between; background: #0f172a; padding: 15px 20px; border-radius: 12px; border: 1px solid #1e293b; margin-bottom: 20px; }
+    /* 상단 지수 전광판 (모바일 2x2 바둑판 압축) */
+    .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; gap: 8px 0; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
-    .index-name { font-size: 0.85rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
-    .index-val { font-size: 1.15rem; font-weight: 800; color: #ffffff; }
-    .index-diff { font-size: 0.85rem; font-weight: 600; }
+    .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 2px; }
+    .index-val { font-size: 1.05rem; font-weight: 800; color: #ffffff; }
+    .index-diff { font-size: 0.75rem; font-weight: 600; }
     
-    .streamlit-expanderHeader { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 8px !important; color: rgb(108,122,137) !important; font-weight: 700 !important; }
-    div[data-testid="stExpander"] div[role="button"] p { font-weight: 700 !important; color: rgb(108,122,137) !important; }
+    .streamlit-expanderHeader { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 8px !important; padding: 10px !important; min-height: 40px !important; }
+    div[data-testid="stExpander"] div[role="button"] p { font-size: 0.85rem !important; font-weight: 700 !important; color: rgb(108,122,137) !important; }
     
-    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
+    /* KPI 4대 지표 커스텀 (Streamlit 기본 모듈 폐기 -> HTML Grid 도입) */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+    .kpi-box { background: transparent; padding: 0; display: flex; flex-direction: column; }
+    .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
+    .kpi-val { font-size: 1.5rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
+    .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
+    
+    /* 프리미엄 카드 디자인 */
+    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
-    details.premium-card summary { padding: 16px; cursor: pointer; list-style: none; }
+    details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
     details.premium-card summary::-webkit-details-marker { display: none; }
     
+    /* PC 레이아웃 */
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
-    .card-left { display: flex; align-items: center; gap: 8px; width: 30%; min-width: 150px; }
-    .card-right { display: flex; justify-content: space-between; align-items: center; width: 70%; }
+    .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
+    .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
     
-    .stock-name { font-size: 1.05rem; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stock-name { font-size: 1rem; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     
-    .val-box { display: flex; flex-direction: column; align-items: flex-end; width: 33%; }
-    .val-label { font-size: 0.7rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 2px; }
-    .val-num { font-size: 1.05rem; font-weight: 800; }
+    .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; text-align: center; }
+    .val-label { font-size: 0.65rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 2px; }
+    .val-num { font-size: 1rem; font-weight: 800; }
     
     .text-red { color: #ef4444; } .text-blue { color: rgb(70,130,180); } .text-gray { color: rgb(108,122,137); } .text-white { color: #ffffff; }
     
-    .card-body { background-color: #020617; padding: 20px; border-top: 1px solid #1e293b; border-radius: 0 0 12px 12px; }
-    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .card-body { background-color: #020617; padding: 16px; border-top: 1px solid #1e293b; border-radius: 0 0 10px 10px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .metric-box { display: flex; flex-direction: column; }
-    .metric-label { font-size: 0.8rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 4px; }
-    .metric-value { font-size: 1.1rem; font-weight: 700; color: #ffffff; }
-    .metric-highlight { color: rgb(70,130,180); font-weight: 800; font-size: 1.15rem; }
+    .metric-label { font-size: 0.75rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 2px; }
+    .metric-value { font-size: 1.05rem; font-weight: 700; color: #ffffff; }
+    .metric-highlight { color: rgb(70,130,180); font-weight: 800; font-size: 1.1rem; }
     
+    /* 📱 모바일 환경 최적화 (폭 768px 이하) */
     @media (max-width: 768px) {
-        .card-header-flex { flex-direction: column; align-items: flex-start; gap: 6px; }
-        .card-left { width: 100%; border-bottom: 1px dashed #1e293b; padding-bottom: 8px; margin-bottom: 4px; }
-        .stock-name { font-size: 1.15rem; } 
-        .card-right { width: 100%; justify-content: space-between; }
-        .val-label { font-size: 0.65rem; }
-        .val-num { font-size: 0.95rem; }
+        .hq-title { font-size: 1.1rem; margin-bottom: 10px; }
         
-        .index-container { flex-wrap: wrap; padding: 10px; }
-        .index-item { width: 48%; margin-bottom: 10px; }
-        [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
+        /* 지수 전광판 2x2 정렬 */
+        .index-container { padding: 10px; gap: 10px 0; }
+        .index-item { width: 48%; } /* 4개에서 2개씩 2줄로 배치 */
+        .index-val { font-size: 0.95rem; }
+        .index-diff { font-size: 0.7rem; }
+        
+        /* KPI 4대 지표 2x2 압축 */
+        .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 12px 10px; margin-bottom: 15px; }
+        .kpi-label { font-size: 0.7rem; margin-bottom: 2px; }
+        .kpi-val { font-size: 1.15rem; }
+        .kpi-delta { font-size: 0.75rem; display: block; margin-left: 0; margin-top: 2px; }
+        
+        /* 카드 내부 정렬 어긋남 완벽 통제 */
+        .card-header-flex { flex-direction: column; align-items: stretch; gap: 8px; }
+        .card-left { width: 100%; border-bottom: 1px dashed rgba(30,41,59, 0.7); padding-bottom: 8px; justify-content: flex-start; }
+        .stock-name { font-size: 1.05rem; }
+        .card-right { width: 100%; display: flex; flex-direction: row; justify-content: space-between; }
+        .val-box { width: 32%; align-items: center; } /* 3칸 균등 분배 */
+        .val-label { font-size: 0.6rem; }
+        .val-num { font-size: 0.95rem; }
     }
-    
-    [data-testid="stMetricValue"] { color: #ffffff !important; font-size: 1.8rem !important; font-weight: 800 !important; }
-    [data-testid="stMetricDelta"] { color: rgb(70,130,180) !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 거시 지표 및 데이터베이스 로드 ---
+# --- [2] 보조 함수 (동기화 및 데이터 스캔) ---
 def safe_update(sheet, row, col_name, val, idmap):
     if col_name in idmap and idmap[col_name] > 0:
         sheet.update_cell(row, idmap[col_name], val)
 
 @st.cache_data(ttl=120)
 def get_market_indices():
-    indices = {
-        "KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"),
-        "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"),
-        "DOW": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"),
-        "USD/KRW": ("-", "-", "text-gray")
-    }
+    indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray")}
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         res_main = requests.get("https://finance.naver.com/", headers=headers, timeout=3)
@@ -160,7 +175,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V45.0</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V46.0</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types, label_visibility="collapsed")
@@ -192,18 +207,40 @@ try:
     daily_delta = 0
     if '전일종가' in display_df.columns and '현재가2' in display_df.columns and '잔고수량' in display_df.columns:
         for _, row in display_df.iterrows():
-            if not any(x in str(row.get('종목명','')) for x in ["현금", "예수금", "단기", "연금"]):
+            if not any(x in str(row.get('종목명','')) for x in ["현금", "예수금", "단기", "연금", "TDF", "펀드"]):
                 diff = row['현재가2'] - row['전일종가']
                 if row['전일종가'] > 0 and row['현재가2'] > 0:
                     daily_delta += diff * row['잔고수량']
     
-    kc1, kc2, kc3, kc4 = st.columns(4)
-    kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    kc2.metric("총 누적 손익", f"{total_profit:,.0f}원", delta=f"{total_roi:,.2f}%")
-    kc3.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
-    kc4.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
+    # 🚨 [V46 핵심] Streamlit 기본 Metric 대신 자체 디자인 HTML Grid 탑재
+    roi_cl = "text-red" if total_roi > 0 else "text-blue" if total_roi < 0 else "text-gray"
+    roi_sign = "▲" if total_roi > 0 else "▼" if total_roi < 0 else ""
+    delta_cl = "text-red" if daily_delta > 0 else "text-blue" if daily_delta < 0 else "text-gray"
+    delta_sign = "▲" if daily_delta > 0 else "▼" if daily_delta < 0 else ""
     
-    # 🚨 [V45 업데이트] 전략 사령부: 평가금액 자동 합산 및 종목 삭제 기능 탑재
+    kpi_html = f"""
+    <div class="kpi-grid">
+        <div class="kpi-box">
+            <span class="kpi-label">총 함대 자산</span>
+            <span class="kpi-val">{total_eval:,.0f}원</span>
+        </div>
+        <div class="kpi-box">
+            <span class="kpi-label">총 누적 손익</span>
+            <span class="kpi-val {roi_cl}">{total_profit:,.0f}원 <span class="kpi-delta">{roi_sign}{abs(total_roi):.2f}%</span></span>
+        </div>
+        <div class="kpi-box">
+            <span class="kpi-label">전일 대비 증감</span>
+            <span class="kpi-val {delta_cl}">{daily_delta:,.0f}원 <span class="kpi-delta">{delta_sign}{abs(daily_delta):,.0f}</span></span>
+        </div>
+        <div class="kpi-box">
+            <span class="kpi-label">기동 대기 예수금</span>
+            <span class="kpi-val text-white">{total_cash:,.0f}원</span>
+        </div>
+    </div>
+    """
+    st.markdown(kpi_html, unsafe_allow_html=True)
+    
+    # 전략 사령부 (기능 유지)
     with st.sidebar:
         st.header("🎯 전략 사령부")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
@@ -238,7 +275,7 @@ try:
                 if "삭제" not in mode:
                     qv = int(qty) if qty else 0
                     pv = int(price) if price else 0
-                    total_amount = qv * pv # 평가금액/매수금액 자동 계산
+                    total_amount = qv * pv
                 
                 if "신규" in mode and s_name:
                     nr = len(full_df) + 2
@@ -249,8 +286,8 @@ try:
                     safe_update(ws, nr, '종목명', s_name, idx_map)
                     safe_update(ws, nr, '잔고수량', qv, idx_map)
                     safe_update(ws, nr, '매수단가', pv, idx_map)
-                    safe_update(ws, nr, '매수금액', total_amount, idx_map) # 금액 동시 기입
-                    safe_update(ws, nr, '평가금액', total_amount, idx_map) # 금액 동시 기입
+                    safe_update(ws, nr, '매수금액', total_amount, idx_map) 
+                    safe_update(ws, nr, '평가금액', total_amount, idx_map) 
                     if s_code: safe_update(ws, nr, '종목코드', str(s_code).strip().zfill(6), idx_map)
                 
                 elif s_name != "없음":
@@ -267,7 +304,7 @@ try:
                             safe_update(ws, row_idx_to_update, '매수단가', pv, idx_map)
                             safe_update(ws, row_idx_to_update, '매수금액', total_amount, idx_map)
                             safe_update(ws, row_idx_to_update, '평가금액', total_amount, idx_map)
-                        else: # 기존 매매
+                        else:
                             oq = pd.to_numeric(full_df.at[ti, '잔고수량'], errors='coerce')
                             oa = pd.to_numeric(full_df.at[ti, '매수단가'], errors='coerce')
                             oq = oq if not pd.isna(oq) else 0
@@ -317,7 +354,7 @@ try:
                         <div class="card-header-flex">
                             <div class="card-left"><div class="status-dot dot-gray"></div><span class="stock-name">{row.get("종목명","")}</span></div>
                             <div class="card-right">
-                                <div class="val-box"><span class="val-label">평가금액</span><span class="val-num text-gray">{row.get("평가금액",0):,.0f}</span></div>
+                                <div class="val-box"><span class="val-label">평가금액</span><span class="val-num text-white">{row.get("평가금액",0):,.0f}</span></div>
                                 <div class="val-box"><span class="val-label">당일비</span><span class="val-num text-gray">-</span></div>
                                 <div class="val-box"><span class="val-label">수익률</span><span class="val-num text-gray">{y_str}</span></div>
                             </div>
