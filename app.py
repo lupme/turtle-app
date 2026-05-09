@@ -7,8 +7,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 
-# --- [1] 시스템 설정 및 CSS (Steel Blue & Slate Gray 규격 엄수) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V44", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V45", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -23,7 +23,6 @@ st.markdown("""
     .index-val { font-size: 1.15rem; font-weight: 800; color: #ffffff; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
-    /* Expander UI 커스텀 */
     .streamlit-expanderHeader { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 8px !important; color: rgb(108,122,137) !important; font-weight: 700 !important; }
     div[data-testid="stExpander"] div[role="button"] p { font-weight: 700 !important; color: rgb(108,122,137) !important; }
     
@@ -45,10 +44,7 @@ st.markdown("""
     .val-label { font-size: 0.7rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 2px; }
     .val-num { font-size: 1.05rem; font-weight: 800; }
     
-    .text-red { color: #ef4444; } 
-    .text-blue { color: rgb(70,130,180); } 
-    .text-gray { color: rgb(108,122,137); }
-    .text-white { color: #ffffff; }
+    .text-red { color: #ef4444; } .text-blue { color: rgb(70,130,180); } .text-gray { color: rgb(108,122,137); } .text-white { color: #ffffff; }
     
     .card-body { background-color: #020617; padding: 20px; border-top: 1px solid #1e293b; border-radius: 0 0 12px 12px; }
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
@@ -75,7 +71,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 거시경제 지표 다중 스캐너 ---
+# --- [2] 거시 지표 및 데이터베이스 로드 ---
 def safe_update(sheet, row, col_name, val, idmap):
     if col_name in idmap and idmap[col_name] > 0:
         sheet.update_cell(row, idmap[col_name], val)
@@ -90,7 +86,6 @@ def get_market_indices():
     }
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # 1. 국내 지수
         res_main = requests.get("https://finance.naver.com/", headers=headers, timeout=3)
         soup_main = BeautifulSoup(res_main.text, 'html.parser')
         for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
@@ -102,7 +97,6 @@ def get_market_indices():
                 sign = "▲" if "상승" in b_txt else "▼" if "하락" in b_txt else ""
                 indices[code] = (val, f"{sign}{diff} ({rate})", cl)
                 
-        # 2. 해외 주요 지수 및 공포 지수
         for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("DOW", "DJI@DJI"), ("VIX", "VIX@VIX")]:
             res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=3)
             s_w = BeautifulSoup(res_w.text, 'html.parser')
@@ -119,7 +113,6 @@ def get_market_indices():
                         sign = "▲" if "상승" in s_t else "▼" if "하락" in s_t else ""
                         indices[code] = (val, f"{sign}{d_v} ({r_v})", cl)
 
-        # 3. 환율 (USD/KRW)
         res_ex = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=3)
         s_ex = BeautifulSoup(res_ex.text, 'html.parser')
         ex_box = s_ex.select_one("#exchangeList > li.on > a.head.usd")
@@ -130,7 +123,6 @@ def get_market_indices():
             cl = "text-red" if "상승" in blind else "text-blue" if "하락" in blind else "text-gray"
             sign = "▲" if "상승" in blind else "▼" if "하락" in blind else ""
             indices["USD/KRW"] = (val, f"{sign}{diff}", cl)
-            
     except: pass
     return indices
 
@@ -168,13 +160,12 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V44.0</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V45.0</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types, label_visibility="collapsed")
         
     if indices:
-        # 1. 메인 주력 지수 (상시 노출)
         idx_html = '<div class="index-container">'
         for name in ["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"]:
             val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
@@ -182,7 +173,6 @@ try:
         idx_html += '</div>'
         st.markdown(idx_html, unsafe_allow_html=True)
         
-        # 2. 보조 거시 지표 (토글 숨김)
         with st.expander("🌍 거시경제 및 보조 지표 (환율, VIX, DOW)"):
             macro_html = '<div class="index-container" style="margin-bottom: 0px; background: transparent; border: none; padding: 5px;">'
             for name in ["DOW", "VIX", "USD/KRW"]:
@@ -213,7 +203,7 @@ try:
     kc3.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
     kc4.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
-    # 전략 사령부
+    # 🚨 [V45 업데이트] 전략 사령부: 평가금액 자동 합산 및 종목 삭제 기능 탑재
     with st.sidebar:
         st.header("🎯 전략 사령부")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
@@ -221,7 +211,7 @@ try:
         st.markdown(f"<div style='color:rgb(70,130,180); font-size:1.2rem; font-weight:800; margin-top:-10px; margin-bottom:20px;'>목표 달성률: {t_rate:.1f}%</div>", unsafe_allow_html=True)
         st.divider()
         
-        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
+        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
         acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
         sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts) if acc_opts else ""
         sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
@@ -229,21 +219,26 @@ try:
         if "신규" not in mode:
             s_list = [s for s in full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['종목명'].dropna().tolist() if str(s).strip() != '']
             s_name = st.selectbox("작전 종목 선택", s_list if s_list else ["없음"])
-            action = st.radio("구분", ["매수", "매도"], horizontal=True) if "매매" in mode else None
+            if "매매" in mode:
+                action = st.radio("구분", ["매수", "매도"], horizontal=True)
         else:
             s_name = st.text_input("신규 종목명")
             s_code = st.text_input("종목코드 (숫자 6자리)")
             
-        qty = st.number_input("수량", min_value=0, value=None, step=1)
-        price = st.number_input("현재가/단가", min_value=0, value=None, step=100)
+        if "삭제" not in mode:
+            qty = st.number_input("수량", min_value=0, value=None, step=1)
+            price = st.number_input("현재가/단가", min_value=0, value=None, step=100)
         
         if st.button("명령 확정 (Sync)"):
             try:
                 client = get_gspread_client() 
                 ws = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
                 idx_map = {str(col).strip(): i+1 for i, col in enumerate(full_df.columns)}
-                qv = int(qty) if qty else 0
-                pv = int(price) if price else 0
+                
+                if "삭제" not in mode:
+                    qv = int(qty) if qty else 0
+                    pv = int(price) if price else 0
+                    total_amount = qv * pv # 평가금액/매수금액 자동 계산
                 
                 if "신규" in mode and s_name:
                     nr = len(full_df) + 2
@@ -254,16 +249,25 @@ try:
                     safe_update(ws, nr, '종목명', s_name, idx_map)
                     safe_update(ws, nr, '잔고수량', qv, idx_map)
                     safe_update(ws, nr, '매수단가', pv, idx_map)
+                    safe_update(ws, nr, '매수금액', total_amount, idx_map) # 금액 동시 기입
+                    safe_update(ws, nr, '평가금액', total_amount, idx_map) # 금액 동시 기입
                     if s_code: safe_update(ws, nr, '종목코드', str(s_code).strip().zfill(6), idx_map)
                 
                 elif s_name != "없음":
                     t_indices = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index
                     if len(t_indices) > 0:
                         ti = t_indices[0]
-                        if "수정" in mode:
-                            safe_update(ws, ti+2, '잔고수량', qv, idx_map)
-                            safe_update(ws, ti+2, '매수단가', pv, idx_map)
-                        else:
+                        row_idx_to_update = ti + 2
+                        
+                        if "삭제" in mode:
+                            ws.delete_rows(row_idx_to_update)
+                            st.success(f"[{s_name}] 완전 삭제 완료.")
+                        elif "수정" in mode:
+                            safe_update(ws, row_idx_to_update, '잔고수량', qv, idx_map)
+                            safe_update(ws, row_idx_to_update, '매수단가', pv, idx_map)
+                            safe_update(ws, row_idx_to_update, '매수금액', total_amount, idx_map)
+                            safe_update(ws, row_idx_to_update, '평가금액', total_amount, idx_map)
+                        else: # 기존 매매
                             oq = pd.to_numeric(full_df.at[ti, '잔고수량'], errors='coerce')
                             oa = pd.to_numeric(full_df.at[ti, '매수단가'], errors='coerce')
                             oq = oq if not pd.isna(oq) else 0
@@ -271,16 +275,20 @@ try:
                             
                             nq = oq + qv if action == "매수" else max(0, oq - qv)
                             na = ((oq * oa) + (qv * pv)) / nq if action == "매수" and nq > 0 else oa
+                            n_total = int(nq * na)
                             
-                            safe_update(ws, ti+2, '잔고수량', int(nq), idx_map)
-                            safe_update(ws, ti+2, '매수단가', int(na), idx_map)
+                            safe_update(ws, row_idx_to_update, '잔고수량', int(nq), idx_map)
+                            safe_update(ws, row_idx_to_update, '매수단가', int(na), idx_map)
+                            safe_update(ws, row_idx_to_update, '매수금액', n_total, idx_map)
+                            if any(x in s_name for x in ["현금", "단기", "예수금", "TDF", "펀드"]):
+                                safe_update(ws, row_idx_to_update, '평가금액', n_total, idx_map)
                 
                 st.cache_data.clear()
-                st.success("데이터 무결성 검증 통과. 동기화 완료.")
+                st.success("명령 전송 완료.")
                 time.sleep(1)
                 st.rerun()
             except Exception as e:
-                st.error(f"동기화 오류: {e}")
+                st.error(f"작전 실패: {e}")
 
     # 리스트 렌더링
     if not display_df.empty:
