@@ -1,31 +1,41 @@
+import requests
+from bs4 import BeautifulSoup
 import streamlit as st
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-import json
+import re
 
-st.title("🛡️ 시스템 연결 진단 모드")
-
-try:
-    # [1] Secrets 로드 확인
-    st.write("1. Secrets 로드 중...")
-    key_info = json.loads(st.secrets["google_credentials"])
-    st.success("Secrets 로드 완료!")
-
-    # [2] 구글 시트 연결 확인
-    st.write("2. 구글 시트 연결 시도...")
-    creds = Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
-    client = gspread.authorize(creds)
+def get_tcr_score(stock_code, current_price):
+    """네이버 금융 크롤링 - 실패해도 절대 앱을 멈추지 않음"""
+    if not stock_code or current_price <= 0:
+        return {"score": 0, "status": "코드/가격 오류", "color": "#6C7A89"}
     
-    # 사령관님의 시트 URL 직접 입력
-    sheet_url = "https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0"
-    sheet = client.open_by_url(sheet_url).get_worksheet(0)
-    data = pd.DataFrame(sheet.get_all_records())
-    
-    st.success(f"시트 연결 성공! 데이터 {len(data)}건 발견.")
-    st.write("--- 데이터 샘플 ---")
-    st.dataframe(data.head()) # 데이터가 화면에 보이면 성공!
+    try:
+        clean_code = str(stock_code).zfill(6)
+        url = f"https://finance.naver.com/item/main.naver?code={clean_code}"
+        # 타임아웃을 짧게 설정하여 앱 지연 방지
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=2.5)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 데이터 파싱 (최소한의 필수 데이터만)
+        high52, low52 = current_price, current_price
+        info = soup.select_one(".no_info")
+        if info:
+            ems = info.select("tr:-soup-contains('52주') em")
+            if len(ems) >= 2:
+                high52 = int(re.sub(r'[^0-9]', '', ems[0].text))
+                low52 = int(re.sub(r'[^0-9]', '', ems[1].text))
+        
+        # 확신율 산출 로직 (추세+방어 중심)
+        t_score = ((current_price - low52) / (high52 - low52)) * 100 if high52 > low52 else 50.0
+        v_score = max(0.0, 100.0 - (((high52 - current_price) / high52) * 100)) if high52 > 0 else 50.0
+        
+        final_score = round((t_score * 0.5) + (v_score * 0.5), 1)
+        color = "#4682B4" if final_score >= 75 else "#6C7A89"
+        
+        return {"score": final_score, "status": "관측 완료", "color": color}
+    except:
+        # 실패 시 빈 데이터 반환 (화면 백화 방지)
+        return {"score": "-", "status": "데이터 호출 지연", "color": "#6C7A89"}
 
-except Exception as e:
-    st.error(f"❌ 진단 실패: {e}")
-    st.info("이 에러 메시지를 저에게 알려주시면 즉시 해결책을 찾겠습니다.")
+def get_analysis_legend():
+    return """<div style="margin-top:10px; padding:10px; border-top:1px solid #1e293b; color:#6C7A89; font-size:0.75rem;">
+        [M01: T-Q 안정화 엔진 V55 가동 중]</div>"""
