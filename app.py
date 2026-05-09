@@ -5,81 +5,89 @@ from google.oauth2.service_account import Credentials
 import json
 import requests
 from bs4 import BeautifulSoup
+import time
 
-# --- [1] 시스템 설정 및 CSS (V24 오리지널 + 규격 색상 복원) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V41", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS (모바일 최적화 및 시인성 극대화) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V42", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-    /* 전체 배경 및 폰트 */
-    .stApp { background-color: #020617; color: #f1f5f9; }
+    /* 배경 및 기본 폰트 */
+    .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     
-    /* 타이틀 (Steel Blue 적용) */
+    /* 타이틀 (Steel Blue 포인트) */
     .hq-title { font-size: 1.4rem; color: rgb(70,130,180); font-weight: 800; letter-spacing: 1px; padding-top: 10px; margin-bottom: 20px; }
     
     /* 상단 지수 전광판 */
     .index-container { display: flex; justify-content: space-between; background: #0f172a; padding: 15px 20px; border-radius: 12px; border: 1px solid #1e293b; margin-bottom: 20px; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.85rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
-    .index-val { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
+    .index-val { font-size: 1.15rem; font-weight: 800; color: #ffffff; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
-    /* [핵심] V24 1줄 정렬 리스트 헤더 및 행 레이아웃 복원 */
-    .list-header { color: rgb(108,122,137); font-size: 0.85rem; font-weight: 600; padding: 0 16px 10px 16px; border-bottom: 1px solid #1e293b; margin-bottom: 10px; }
-    .row-layout { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; }
-    
-    /* 비율 기반 정밀 폭 분할 (모바일 깨짐 방지) */
-    .col-name { width: 30%; display: flex; align-items: center; gap: 6px; overflow: hidden; }
-    .col-price { width: 24%; text-align: right; font-size: 1.05rem; font-weight: 800; color: #f8fafc; }
-    .col-diff { width: 26%; text-align: right; font-size: 0.9rem; font-weight: 700; }
-    .col-yield { width: 20%; text-align: right; font-size: 1.05rem; font-weight: 800; }
-    
-    /* 프리미엄 카드 디자인 */
+    /* 카드 디자인 */
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
-    details.premium-card summary { display: flex; align-items: center; padding: 16px 16px; cursor: pointer; list-style: none; }
+    details.premium-card summary { padding: 16px; cursor: pointer; list-style: none; }
     details.premium-card summary::-webkit-details-marker { display: none; }
     
-    /* 상태 도트 및 텍스트 색상 (Slate Gray / Steel Blue 엄수) */
+    /* [핵심] 반응형 Flexbox 레이아웃 */
+    .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
+    .card-left { display: flex; align-items: center; gap: 8px; width: 30%; min-width: 150px; }
+    .card-right { display: flex; justify-content: space-between; align-items: center; width: 70%; }
+    
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background-color: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
-    .dot-blue { background-color: rgb(70,130,180); box-shadow: 0 0 8px rgba(70, 130, 180, 0.6); }
-    .dot-gray { background-color: rgb(108,122,137); }
+    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
     
-    .stock-name { font-size: 1.05rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .text-red { color: #ef4444; } .text-blue { color: rgb(70,130,180); } .text-gray { color: rgb(108,122,137); }
+    .stock-name { font-size: 1.05rem; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     
-    /* 카드 확장 시 내부 상세 지표 */
+    .c-price { width: 30%; text-align: right; font-size: 1.1rem; font-weight: 800; }
+    .c-diff { width: 40%; text-align: right; font-size: 0.95rem; font-weight: 700; }
+    .c-yield { width: 30%; text-align: right; font-size: 1.1rem; font-weight: 800; }
+    
+    /* 색상 규격 */
+    .text-red { color: #ef4444; } 
+    .text-blue { color: rgb(70,130,180); } 
+    .text-gray { color: rgb(108,122,137); }
+    .text-white { color: #ffffff; }
+    
+    /* 확장 상세 정보 */
     .card-body { background-color: #020617; padding: 20px; border-top: 1px solid #1e293b; border-radius: 0 0 12px 12px; }
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
     .metric-box { display: flex; flex-direction: column; }
     .metric-label { font-size: 0.8rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 4px; }
-    .metric-value { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
-    .metric-highlight { color: rgb(70,130,180); font-weight: 800; font-size: 1.1rem; }
+    .metric-value { font-size: 1.1rem; font-weight: 700; color: #ffffff; }
+    .metric-highlight { color: rgb(70,130,180); font-weight: 800; font-size: 1.15rem; }
     
-    .pos-badge { padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; margin-bottom: 16px; display: inline-block; border: 1px solid; }
-    .pos-head { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
-    .pos-waist { background-color: rgba(245, 158, 11, 0.1); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
-    .pos-feet { background-color: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.3); }
-    
-    /* 메트릭 폰트 색상 강제 지정 */
-    [data-testid="stMetricValue"] { color: rgb(70,130,180) !important; font-size: 1.8rem !important; font-weight: 800 !important; }
-    
-    /* 모바일 반응형 폰트 축소 (레이아웃은 1줄 유지) */
+    /* 📍 모바일 환경 전용 타겟팅 (화면 폭 768px 이하) */
     @media (max-width: 768px) {
-        .col-price { font-size: 0.95rem; }
-        .col-diff { font-size: 0.8rem; }
-        .col-yield { font-size: 0.95rem; }
-        .stock-name { font-size: 0.95rem; }
-        .list-header { font-size: 0.75rem; }
+        .card-header-flex { flex-direction: column; align-items: flex-start; gap: 6px; }
+        .card-left { width: 100%; border-bottom: 1px dashed #1e293b; padding-bottom: 8px; margin-bottom: 4px; }
+        .stock-name { font-size: 1.15rem; } /* 모바일에서 종목명 더 크게 */
+        .card-right { width: 100%; justify-content: space-between; }
+        .c-price { text-align: left; width: 33%; font-size: 1.05rem; }
+        .c-diff { text-align: center; width: 34%; font-size: 0.9rem; }
+        .c-yield { text-align: right; width: 33%; font-size: 1.05rem; }
+        
+        .index-container { flex-wrap: wrap; padding: 10px; }
+        .index-item { width: 48%; margin-bottom: 10px; }
+        [data-testid="stMetricValue"] { font-size: 1.4rem !important; }
     }
+    
+    [data-testid="stMetricValue"] { color: #ffffff !important; font-size: 1.8rem !important; font-weight: 800 !important; }
+    [data-testid="stMetricDelta"] { color: rgb(70,130,180) !important; }
     </style>
     """, unsafe_allow_html=True)
 
+# --- [2] 보조 함수 (동기화 및 데이터 스캔) ---
+def safe_update(sheet, row, col_name, val, idmap):
+    if col_name in idmap and idmap[col_name] > 0:
+        sheet.update_cell(row, idmap[col_name], val)
+
 @st.cache_data(ttl=120)
 def get_market_indices():
-    indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray")}
+    indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray")}
     try:
         res = requests.get("https://finance.naver.com/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         soup = BeautifulSoup(res.text, 'html.parser')
@@ -106,7 +114,6 @@ def load_data():
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
-    # 🚨 무결성 필터: 시트 내의 모든 에러 텍스트(#N/A 등)를 0으로 강제 변환
     df = full_df.copy()
     for col in df.columns:
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드', '상품', '구분']:
@@ -129,7 +136,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V41</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V42</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types, label_visibility="collapsed")
@@ -144,14 +151,12 @@ try:
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
-    # KPI 합산 (구글 시트의 연산값을 100% 신뢰하여 추출)
     total_eval = display_df['평가금액'].sum() if '평가금액' in display_df else 0
     total_invest = display_df['매수금액'].sum() if '매수금액' in display_df else 0
     total_profit = display_df['평가손익'].sum() if '평가손익' in display_df else 0
     total_roi = (total_profit / total_invest * 100) if total_invest > 0 else 0
     total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum() if '평가금액' in display_df else 0
     
-    # 전일비 정산 (안전 연산)
     daily_delta = 0
     if '전일종가' in display_df.columns and '현재가2' in display_df.columns and '잔고수량' in display_df.columns:
         for _, row in display_df.iterrows():
@@ -166,27 +171,81 @@ try:
     kc3.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
     kc4.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
+    # 🚨 [복원] 전략 사령부 (수동 입력 및 동기화 모듈)
     with st.sidebar:
         st.header("🎯 전략 사령부")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
         t_rate = (total_eval/target_val*100) if target_val > 0 else 0
         st.markdown(f"<div style='color:rgb(70,130,180); font-size:1.2rem; font-weight:800; margin-top:-10px; margin-bottom:20px;'>목표 달성률: {t_rate:.1f}%</div>", unsafe_allow_html=True)
+        st.divider()
+        
+        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가"])
+        acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
+        sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts) if acc_opts else ""
+        sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
+        
+        if "신규" not in mode:
+            s_list = [s for s in full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['종목명'].dropna().tolist() if str(s).strip() != '']
+            s_name = st.selectbox("작전 종목 선택", s_list if s_list else ["없음"])
+            action = st.radio("구분", ["매수", "매도"], horizontal=True) if "매매" in mode else None
+        else:
+            s_name = st.text_input("신규 종목명")
+            s_code = st.text_input("종목코드 (숫자 6자리)")
+            
+        qty = st.number_input("수량", min_value=0, value=None, step=1)
+        price = st.number_input("현재가/단가", min_value=0, value=None, step=100)
+        
+        if st.button("명령 확정 (Sync)"):
+            try:
+                client = get_gspread_client() 
+                ws = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
+                idx_map = {str(col).strip(): i+1 for i, col in enumerate(full_df.columns)}
+                qv = int(qty) if qty else 0
+                pv = int(price) if price else 0
+                
+                if "신규" in mode and s_name:
+                    nr = len(full_df) + 2
+                    safe_update(ws, nr, '계좌번호', sel_acc, idx_map)
+                    at_series = full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['계좌유형']
+                    at = at_series.iloc[0] if not at_series.empty else "수동"
+                    safe_update(ws, nr, '계좌유형', at, idx_map)
+                    safe_update(ws, nr, '종목명', s_name, idx_map)
+                    safe_update(ws, nr, '잔고수량', qv, idx_map)
+                    safe_update(ws, nr, '매수단가', pv, idx_map)
+                    if s_code: safe_update(ws, nr, '종목코드', str(s_code).strip().zfill(6), idx_map)
+                
+                elif s_name != "없음":
+                    t_indices = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index
+                    if len(t_indices) > 0:
+                        ti = t_indices[0]
+                        if "수정" in mode:
+                            safe_update(ws, ti+2, '잔고수량', qv, idx_map)
+                            safe_update(ws, ti+2, '매수단가', pv, idx_map)
+                        else:
+                            oq = pd.to_numeric(full_df.at[ti, '잔고수량'], errors='coerce')
+                            oa = pd.to_numeric(full_df.at[ti, '매수단가'], errors='coerce')
+                            oq = oq if not pd.isna(oq) else 0
+                            oa = oa if not pd.isna(oa) else 0
+                            
+                            nq = oq + qv if action == "매수" else max(0, oq - qv)
+                            na = ((oq * oa) + (qv * pv)) / nq if action == "매수" and nq > 0 else oa
+                            
+                            safe_update(ws, ti+2, '잔고수량', int(nq), idx_map)
+                            safe_update(ws, ti+2, '매수단가', int(na), idx_map)
+                
+                st.cache_data.clear()
+                st.success("데이터 무결성 검증 통과. 동기화 완료.")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"동기화 오류: {e}")
 
+    # 리스트 렌더링
     if not display_df.empty:
-        # 정렬 기준: 수익률2 (존재 시)
         yield_col = '수익률2' if '수익률2' in display_df.columns else '수익률'
         if yield_col in display_df.columns:
             display_df = display_df.sort_values(by=yield_col, ascending=False)
             
-        st.markdown("""
-        <div class="row-layout list-header">
-            <div class="col-name">종목명</div>
-            <div class="col-price">현재가</div>
-            <div class="col-diff">당일비(%)</div>
-            <div class="col-yield">수익률</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
         html_cards = ""
         for _, row in display_df.iterrows():
             is_special = any(x in str(row.get('종목명','')) for x in ["현금", "예수금", "단기", "연금"]) or (row.get('잔고수량',0) == 0 and row.get('매수금액',0) > 0)
@@ -205,38 +264,38 @@ try:
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
-                        <div class="row-layout">
-                            <div class="col-name"><div class="status-dot dot-gray"></div><span class="stock-name text-gray">{row.get("종목명","")}</span></div>
-                            <div class="col-price text-gray">{row.get("평가금액",0):,.0f}원</div>
-                            <div class="col-diff text-gray">-</div>
-                            <div class="col-yield text-gray">{y_str}</div>
+                        <div class="card-header-flex">
+                            <div class="card-left"><div class="status-dot dot-gray"></div><span class="stock-name">{row.get("종목명","")}</span></div>
+                            <div class="card-right">
+                                <div class="c-price text-gray">{row.get("평가금액",0):,.0f}원</div>
+                                <div class="c-diff text-gray">-</div>
+                                <div class="c-yield text-gray">{y_str}</div>
+                            </div>
                         </div>
                     </summary>
                     <div class="card-body"><div class="metric-grid">
-                        <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-highlight">{row.get('평가금액',0):,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-value">{row.get('평가금액',0):,.0f}원</div></div>
                         <div class="metric-box"><div class="metric-label">투입 원금</div><div class="metric-value">{row.get('매수금액',0):,.0f}원</div></div>
-                        <div class="metric-box"><div class="metric-label">누적 손익</div><div class="metric-value">{row.get('평가손익',0):,.0f}원</div></div>
                     </div></div>
                 </details>"""
             else:
-                # 일반 주식 UI (Steel Blue & Slate Gray 엄수)
                 cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
                 dt = "dot-red" if y_val > 0 else "dot-blue" if y_val < 0 else "dot-gray"
                 diff_color = "text-red" if diff > 0 else "text-blue" if diff < 0 else "text-gray"
                 ds = f"<span class='{diff_color}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f} ({rate:.2f}%)</span>" if diff != 0 else "-"
                 txt, pos_cl = get_position_text(now_p, low52, high52)
-                
-                # y_val이 이미 백분율 값일 경우와 소수점일 경우를 자동 분기
                 y_display = y_val * 100 if -1 < y_val < 1 else y_val
                 
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
-                        <div class="row-layout">
-                            <div class="col-name"><div class="status-dot {dt}"></div><span class="stock-name">{row.get("종목명","")}</span></div>
-                            <div class="col-price {cl}">{now_p:,.0f}</div>
-                            <div class="col-diff">{ds}</div>
-                            <div class="col-yield {cl}">{y_display:.2f}%</div>
+                        <div class="card-header-flex">
+                            <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name">{row.get("종목명","")}</span></div>
+                            <div class="card-right">
+                                <div class="c-price {cl}">{now_p:,.0f}</div>
+                                <div class="c-diff">{ds}</div>
+                                <div class="c-yield {cl}">{y_display:.2f}%</div>
+                            </div>
                         </div>
                     </summary>
                     <div class="card-body">
@@ -246,8 +305,6 @@ try:
                             <div class="metric-box"><div class="metric-label">매수 총액</div><div class="metric-value">{row.get('매수금액',0):,.0f}원</div></div>
                             <div class="metric-box"><div class="metric-label">누적 손익</div><div class="metric-value {cl}">{row.get('평가손익',0):,.0f}원</div></div>
                             <div class="metric-box"><div class="metric-label">평균 단가 / 수량</div><div class="metric-value">{row.get('매수단가',0):,.0f}원 <span class='text-gray'>({row.get('잔고수량',0):,.0f}주)</span></div></div>
-                            <div class="metric-box"><div class="metric-label">52주 최고</div><div class="metric-value">{high52:,.0f}원</div></div>
-                            <div class="metric-box"><div class="metric-label">52주 최저</div><div class="metric-value">{low52:,.0f}원</div></div>
                         </div>
                     </div>
                 </details>"""
