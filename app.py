@@ -1,69 +1,31 @@
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 import streamlit as st
-import re
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+import json
 
-@st.cache_data(ttl=300)
-def fetch_quant_data(stock_code: str, current_price: int):
-    """네이버 금융 실시간 데이터 파싱 (안정 최우선 버전)"""
-    if not stock_code or current_price <= 0:
-        return 50.0, 50.0, 50.0
-        
-    clean_code = str(stock_code).zfill(6)
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={clean_code}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # 52주 최고/최저 확보
-        high52, low52 = current_price, current_price
-        info_table = soup.select_one(".no_info")
-        if info_table:
-            for tr in info_table.find_all("tr"):
-                if "52주" in tr.text:
-                    ems = tr.find_all("em")
-                    if len(ems) >= 2:
-                        high52 = int(re.sub(r'[^0-9]', '', ems[0].text))
-                        low52 = int(re.sub(r'[^0-9]', '', ems[1].text))
-                    break
-        
-        # 외국인 소진율 확보
-        frgn_rate = 0.0
-        th_tags = soup.find_all('th')
-        for th in th_tags:
-            if "외국인소진율" in th.text:
-                td = th.find_next_sibling('td')
-                if td and td.find('em'):
-                    frgn_rate = float(re.sub(r'[^0-9.]', '', td.find('em').text))
-                break
+st.title("🛡️ 시스템 연결 진단 모드")
 
-        # 점수 연산
-        trend_score = ((current_price - low52) / (high52 - low52)) * 100 if high52 > low52 else 50.0
-        flow_score = min(100.0, 40.0 + (frgn_rate * 1.5))
-        vcp_score = max(0.0, 100.0 - (((high52 - current_price) / high52) * 100)) if high52 > 0 else 50.0
-            
-        return round(flow_score, 1), round(trend_score, 1), round(vcp_score, 1)
-    except:
-        return 50.0, 50.0, 50.0
+try:
+    # [1] Secrets 로드 확인
+    st.write("1. Secrets 로드 중...")
+    key_info = json.loads(st.secrets["google_credentials"])
+    st.success("Secrets 로드 완료!")
 
-def get_tcr_score(stock_code: str, current_price: int) -> dict:
-    """거북이 확신율(TCR) 가중 평균 연산"""
-    if not stock_code or current_price <= 0:
-        return {"score": 0, "status": "데이터 부족", "color": "text-gray"}
+    # [2] 구글 시트 연결 확인
+    st.write("2. 구글 시트 연결 시도...")
+    creds = Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'])
+    client = gspread.authorize(creds)
+    
+    # 사령관님의 시트 URL 직접 입력
+    sheet_url = "https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0"
+    sheet = client.open_by_url(sheet_url).get_worksheet(0)
+    data = pd.DataFrame(sheet.get_all_records())
+    
+    st.success(f"시트 연결 성공! 데이터 {len(data)}건 발견.")
+    st.write("--- 데이터 샘플 ---")
+    st.dataframe(data.head()) # 데이터가 화면에 보이면 성공!
 
-    f_s, t_s, v_s = fetch_quant_data(stock_code, current_price)
-    tcr_score = round((f_s * 0.4) + (t_s * 0.4) + (v_s * 0.2), 1)
-    detail = f"수급:{f_s:.0f} 추세:{t_s:.0f} VCP:{v_s:.0f}"
-
-    if tcr_score >= 75: col, stt = "#4682B4", f"강력 기동 [{detail}]"
-    elif tcr_score <= 40: col, stt = "#ef4444", f"OCP 작동 [{detail}]"
-    else: col, stt = "#6C7A89", f"추세 관찰 [{detail}]"
-
-    return {"score": tcr_score, "status": stt, "color": col}
-
-def get_analysis_legend() -> str:
-    return """<div style="margin-top: 10px; padding: 15px; border-top: 1px solid #1e293b; border-radius: 8px;">
-        <p style="color: #6C7A89; font-size: 0.8rem; font-weight: 700; margin-bottom: 5px;">[M01: T-Q Engine Baseline V49.2]</p>
-        <p style="color: #6C7A89; font-size: 0.75rem; margin: 0;">* 외국인수급(40%) + 52주추세(40%) + VCP방어력(20%)</p></div>"""
+except Exception as e:
+    st.error(f"❌ 진단 실패: {e}")
+    st.info("이 에러 메시지를 저에게 알려주시면 즉시 해결책을 찾겠습니다.")
