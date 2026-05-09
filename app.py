@@ -7,8 +7,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 
-# --- [1] 시스템 설정 및 CSS (V42 베이스 + 숫자 태그 추가) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V42.1", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS (Steel Blue & Slate Gray 규격 엄수) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V44", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -23,12 +23,15 @@ st.markdown("""
     .index-val { font-size: 1.15rem; font-weight: 800; color: #ffffff; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
+    /* Expander UI 커스텀 */
+    .streamlit-expanderHeader { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 8px !important; color: rgb(108,122,137) !important; font-weight: 700 !important; }
+    div[data-testid="stExpander"] div[role="button"] p { font-weight: 700 !important; color: rgb(108,122,137) !important; }
+    
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 16px; cursor: pointer; list-style: none; }
     details.premium-card summary::-webkit-details-marker { display: none; }
     
-    /* 카드 레이아웃 */
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 30%; min-width: 150px; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 70%; }
@@ -38,7 +41,6 @@ st.markdown("""
     
     .stock-name { font-size: 1.05rem; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     
-    /* [핵심 추가] 숫자 태그(라벨) 디자인 */
     .val-box { display: flex; flex-direction: column; align-items: flex-end; width: 33%; }
     .val-label { font-size: 0.7rem; font-weight: 600; color: rgb(108,122,137); margin-bottom: 2px; }
     .val-num { font-size: 1.05rem; font-weight: 800; }
@@ -55,7 +57,6 @@ st.markdown("""
     .metric-value { font-size: 1.1rem; font-weight: 700; color: #ffffff; }
     .metric-highlight { color: rgb(70,130,180); font-weight: 800; font-size: 1.15rem; }
     
-    /* 모바일 환경 (종목명 위로, 숫자는 태그와 함께 아래로) */
     @media (max-width: 768px) {
         .card-header-flex { flex-direction: column; align-items: flex-start; gap: 6px; }
         .card-left { width: 100%; border-bottom: 1px dashed #1e293b; padding-bottom: 8px; margin-bottom: 4px; }
@@ -74,25 +75,62 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 보조 함수 ---
+# --- [2] 거시경제 지표 다중 스캐너 ---
 def safe_update(sheet, row, col_name, val, idmap):
     if col_name in idmap and idmap[col_name] > 0:
         sheet.update_cell(row, idmap[col_name], val)
 
 @st.cache_data(ttl=120)
 def get_market_indices():
-    indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray")}
+    indices = {
+        "KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"),
+        "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"),
+        "DOW": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"),
+        "USD/KRW": ("-", "-", "text-gray")
+    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        res = requests.get("https://finance.naver.com/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-        soup = BeautifulSoup(res.text, 'html.parser')
+        # 1. 국내 지수
+        res_main = requests.get("https://finance.naver.com/", headers=headers, timeout=3)
+        soup_main = BeautifulSoup(res_main.text, 'html.parser')
         for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
-            box = soup.select_one(cls)
+            box = soup_main.select_one(cls)
             if box:
                 val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
                 b_txt = box.select_one(".blind").text
                 cl = "text-red" if "상승" in b_txt else "text-blue" if "하락" in b_txt else "text-gray"
                 sign = "▲" if "상승" in b_txt else "▼" if "하락" in b_txt else ""
                 indices[code] = (val, f"{sign}{diff} ({rate})", cl)
+                
+        # 2. 해외 주요 지수 및 공포 지수
+        for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("DOW", "DJI@DJI"), ("VIX", "VIX@VIX")]:
+            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=3)
+            s_w = BeautifulSoup(res_w.text, 'html.parser')
+            em = s_w.select_one("p.no_today em")
+            if em:
+                val = em.text.strip()
+                diff_area = s_w.select_one("p.no_exday")
+                if diff_area:
+                    ems = diff_area.find_all("em")
+                    if len(ems) >= 2:
+                        d_v, r_v = ems[0].text.strip(), ems[1].text.strip()
+                        s_t = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
+                        cl = "text-red" if "상승" in s_t else "text-blue" if "하락" in s_t else "text-gray"
+                        sign = "▲" if "상승" in s_t else "▼" if "하락" in s_t else ""
+                        indices[code] = (val, f"{sign}{d_v} ({r_v})", cl)
+
+        # 3. 환율 (USD/KRW)
+        res_ex = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=3)
+        s_ex = BeautifulSoup(res_ex.text, 'html.parser')
+        ex_box = s_ex.select_one("#exchangeList > li.on > a.head.usd")
+        if ex_box:
+            val = ex_box.select_one(".value").text
+            diff = ex_box.select_one(".change").text
+            blind = ex_box.select_one(".blind").text
+            cl = "text-red" if "상승" in blind else "text-blue" if "하락" in blind else "text-gray"
+            sign = "▲" if "상승" in blind else "▼" if "하락" in blind else ""
+            indices["USD/KRW"] = (val, f"{sign}{diff}", cl)
+            
     except: pass
     return indices
 
@@ -130,18 +168,28 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V42.1</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V44.0</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types, label_visibility="collapsed")
         
     if indices:
+        # 1. 메인 주력 지수 (상시 노출)
         idx_html = '<div class="index-container">'
-        for name in ["KOSPI", "KOSDAQ"]:
+        for name in ["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"]:
             val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
             idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
         idx_html += '</div>'
         st.markdown(idx_html, unsafe_allow_html=True)
+        
+        # 2. 보조 거시 지표 (토글 숨김)
+        with st.expander("🌍 거시경제 및 보조 지표 (환율, VIX, DOW)"):
+            macro_html = '<div class="index-container" style="margin-bottom: 0px; background: transparent; border: none; padding: 5px;">'
+            for name in ["DOW", "VIX", "USD/KRW"]:
+                val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
+                macro_html += f'<div class="index-item" style="width: 32%;"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
+            macro_html += '</div>'
+            st.markdown(macro_html, unsafe_allow_html=True)
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
@@ -165,7 +213,7 @@ try:
     kc3.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
     kc4.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
-    # 🚨 [V42 원본 복구] 전략 사령부 수동 입력 모듈 (에러 없음)
+    # 전략 사령부
     with st.sidebar:
         st.header("🎯 전략 사령부")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
@@ -242,7 +290,6 @@ try:
             
         html_cards = ""
         for _, row in display_df.iterrows():
-            # 🚨 [추가] TDF 및 펀드를 특수 자산에 포함하여 누락 방지
             is_special = any(x in str(row.get('종목명','')) for x in ["현금", "예수금", "단기", "연금", "TDF", "펀드"]) or (row.get('잔고수량',0) == 0 and row.get('매수금액',0) > 0)
             
             y_val = row.get(yield_col, 0)
