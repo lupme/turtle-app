@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- [1] 시스템 설정 및 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V27", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V28", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -65,15 +65,17 @@ def col_letter(n):
     return string
 
 def safe_update(sheet, row, col_name, val, idmap):
-    if col_name in idmap:
+    if col_name in idmap and idmap[col_name] > 0:
         sheet.update_cell(row, idmap[col_name], val)
 
 @st.cache_data(ttl=120)
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray")}
+    # 로봇 차단 방지용 강력한 헤더 위장
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     try:
         url_main = "https://finance.naver.com/"
-        res_main = requests.get(url_main, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+        res_main = requests.get(url_main, headers=headers, timeout=5)
         soup_main = BeautifulSoup(res_main.text, 'html.parser')
         
         for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
@@ -86,7 +88,7 @@ def get_market_indices():
                 indices[code] = (val, f"{sign}{diff} ({rate})", cl)
                 
         for code, sym in [("DOW", "DJI@DJI"), ("NASDAQ", "NAS@IXIC")]:
-            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=2)
+            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=5)
             s_w = BeautifulSoup(res_w.text, 'html.parser')
             em = s_w.select_one("p.no_today em")
             if em:
@@ -96,7 +98,7 @@ def get_market_indices():
                     ems = diff_area.find_all("em")
                     if len(ems) >= 2:
                         d_v, r_v = ems[0].text.strip(), ems[1].text.strip()
-                        s_t = diff_area.select_one("span.blind").text
+                        s_t = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
                         cl = "text-red" if "상승" in s_t else "text-blue" if "하락" in s_t else "text-gray"
                         sign = "▲" if "상승" in s_t else "▼" if "하락" in s_t else ""
                         indices[code] = (val, f"{sign}{d_v} ({r_v})", cl)
@@ -104,7 +106,6 @@ def get_market_indices():
     return indices
 
 def get_gspread_client():
-    # 매번 신규 인증 생성 (Sync 에러의 원인인 Session Cache 박멸)
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info:
         key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -117,7 +118,7 @@ def load_data():
     full_df = pd.DataFrame(sheet.get_all_records())
     full_df.columns = full_df.columns.str.strip()
     
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '수익률2', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
     for col in essential_cols:
         if col not in full_df.columns: full_df[col] = 0
             
@@ -126,13 +127,16 @@ def load_data():
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-    # 1. 찌꺼기 행(합계) 제거
-    invalid_keywords = '합계|총계|총액|잔고|총자산'
+    # 🚨 [치명적 버그 수정] '잔고' 단어 영구 폐기. 이제 현금잔고가 절대 삭제되지 않습니다.
+    invalid_keywords = '합계|총계|총액|총자산'
     df = df[df['종목명'].astype(str).str.strip() != '']
     df = df[~df['종목명'].astype(str).str.contains(invalid_keywords, na=False)]
     
-    # 2. [무결성 확보] 잔고수량 여부와 상관없이, 매수금액이나 평가금액이 존재하면 무조건 합산 (펀드/연금 증발 방지)
-    df = df[(df['매수금액'] != 0) | (df['평가금액'] != 0) | (df['종목명'].astype(str).str.contains('현금|예수금', na=False))]
+    # 펀드, 연금, 현금 등 모든 형태의 자산 100% 흡수
+    is_special_asset = df['종목명'].astype(str).str.contains('현금|예수금|단기|연금|펀드', na=False)
+    has_qty = df['잔고수량'] > 0
+    has_value = df['평가금액'] > 0
+    df = df[is_special_asset | has_qty | has_value]
     
     return sheet, df, full_df
 
@@ -149,7 +153,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V27</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V28</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -164,18 +168,12 @@ try:
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
-    # 1. 총 함대 자산 (엑셀과 1원 단위까지 완벽 동기화)
     total_eval = display_df['평가금액'].sum()
-    
-    # 2. 총 누적 원금 및 손익 계산 (원금 대비 성과)
     total_invest = display_df['매수금액'].sum()
     total_profit = display_df['평가손익'].sum()
     total_roi = (total_profit / total_invest * 100) if total_invest > 0 else 0
-    
-    # 3. 예수금
     total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
-    # 4. 전일비 정밀 계산 (주식만 대상)
     daily_delta = 0
     for _, row in display_df.iterrows():
         if not any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금", "펀드"]):
@@ -183,7 +181,6 @@ try:
             if prev_p > 0 and now_p > 0 and row['잔고수량'] > 0: 
                 daily_delta += (now_p - prev_p) * row['잔고수량']
     
-    # 4대 KPI 전광판
     kc1, kc2, kc3, kc4 = st.columns(4)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
     kc2.metric("총 누적 손익 (원금대비)", f"{total_profit:,.0f}원", delta=f"{total_roi:,.2f}%")
@@ -271,13 +268,11 @@ try:
     if not display_df.empty:
         st.markdown('<div class="list-header"><div class="row-layout"><div class="col-name">종목명</div><div class="col-price">현재가</div><div class="col-diff">당일비(%)</div><div class="col-yield">누적수익률</div></div></div>', unsafe_allow_html=True)
         
-        # 뻥튀기 방지: 개별 종목의 수익률은 철저하게 '(평가금액 - 매수금액)/매수금액' 으로 계산하여 정렬
         processed_cards = []
         for _, row in display_df.iterrows():
             eval_amt = row['평가금액']
             inv_amt = row['매수금액']
             true_yield = (eval_amt - inv_amt) / inv_amt * 100 if inv_amt > 0 else 0
-            
             row_dict = row.to_dict()
             row_dict['무결성_수익률'] = true_yield
             processed_cards.append(row_dict)
@@ -286,7 +281,6 @@ try:
         
         html_cards = ""
         for _, row in cards_df.iterrows():
-            # 현금, 예수금, 연금, 펀드 등 단가/수량 계산이 불가한 특수 상품 분리
             is_special = any(x in str(row['종목명']) for x in ["현금", "예수금", "단기"]) or (row['잔고수량'] == 0 and row['매수금액'] > 0)
             
             if is_special:
