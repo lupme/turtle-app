@@ -6,8 +6,8 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-# --- [1] V25.0 시스템 설정 (Steel Blue & Slate Gray 규격) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V25", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V26", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -15,14 +15,12 @@ st.markdown("""
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.4rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; padding-top: 10px; margin-bottom: 20px; }
     
-    /* 지수 전광판 (Slate Gray 테두리) */
     .index-container { display: flex; justify-content: space-between; background: #0f172a; padding: 15px 20px; border-radius: 12px; border: 1px solid #1e293b; margin-bottom: 20px; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.85rem; color: #6C7A89; font-weight: 700; margin-bottom: 4px; }
     .index-val { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
-    /* MTS 스타일 리스트 헤더 (28% 정렬 비율 엄수) */
     .list-header { color: #6C7A89; font-size: 0.85rem; font-weight: 600; padding: 0 20px 10px 20px; border-bottom: 1px solid #1e293b; margin-bottom: 10px; }
     .row-layout { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; }
     .col-name { width: 28%; display: flex; align-items: center; gap: 8px; overflow: hidden; }
@@ -30,7 +28,7 @@ st.markdown("""
     .col-diff { width: 28%; text-align: right; font-size: 0.9rem; font-weight: 700; }
     .col-yield { width: 20%; text-align: right; font-size: 1.05rem; font-weight: 800; }
     
-    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.1s; }
+    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
     details.premium-card:hover { border-color: #4682B4; }
     details.premium-card summary { display: flex; align-items: center; padding: 16px 20px; cursor: pointer; list-style: none; }
     details.premium-card summary::-webkit-details-marker { display: none; }
@@ -40,7 +38,6 @@ st.markdown("""
     .dot-blue { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
     .dot-gray { background-color: #6C7A89; }
     .stock-name { font-size: 1.05rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    
     .text-red { color: #ef4444; } .text-blue { color: #3b82f6; } .text-gray { color: #6C7A89; }
     
     .card-body { background-color: #020617; padding: 20px; border-top: 1px solid #1e293b; border-radius: 0 0 12px 12px; }
@@ -65,6 +62,11 @@ def col_letter(n):
         n, remainder = divmod(n - 1, 26)
         string = chr(65 + remainder) + string
     return string
+
+def safe_update(sheet, row, col_name, val, idmap):
+    """에러 방지용 안전 주입 엔진"""
+    if col_name in idmap:
+        sheet.update_cell(row, idmap[col_name], val)
 
 @st.cache_data(ttl=120)
 def get_market_indices():
@@ -123,13 +125,17 @@ def load_data():
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-    # [핵심 수정] 필터링 키워드에서 '잔고' 삭제 (현금잔고 보호)
+    # 쓰레기 데이터 정리
     invalid_keywords = '합계|총계|총액|평가금|총자산'
     df = df[df['종목명'].astype(str).str.strip() != '']
     df = df[~df['종목명'].astype(str).str.contains(invalid_keywords, na=False)]
     
-    # 현금(수량0) 혹은 일반주식(수량>0)만 통과
-    df = df[(df['종목명'].astype(str).str.contains('현금|예수금', na=False)) | (df['잔고수량'] > 0)]
+    # [V26.0 IRP 무결성 필터] 수량이 없어도 평가금액이 있거나 이름이 특수자산이면 합산
+    is_special_asset = df['종목명'].astype(str).str.contains('현금|예수금|단기|연금|펀드', na=False)
+    has_qty = df['잔고수량'] > 0
+    has_value = df['평가금액'] > 0
+    df = df[is_special_asset | has_qty | has_value]
+    
     return sheet, df, full_df
 
 def get_position_text(now, low, high):
@@ -145,7 +151,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V25</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V26</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -160,14 +166,13 @@ try:
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
-    # 무결성 합산
     total_eval = display_df['평가금액'].sum()
     total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
-    # 전일비 정밀 계산
     daily_delta = 0
     for _, row in display_df.iterrows():
-        if not any(x in str(row['종목명']) for x in ["현금", "예수금"]):
+        # 현금성 자산이 아닌 '주식'만 전일비 변동 계산
+        if not any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금"]):
             now_p, prev_p = row['현재가2'], row['전일종가']
             if prev_p > 0 and now_p > 0: daily_delta += (now_p - prev_p) * row['잔고수량']
     
@@ -207,43 +212,51 @@ try:
             
             if "신규" in mode and s_name:
                 nr = len(full_df) + 2
-                sheet.update_cell(nr, idx_map['계좌번호'], sel_acc)
+                safe_update(sheet, nr, '계좌번호', sel_acc, idx_map)
                 at = full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['계좌유형'].iloc[0] if not full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc].empty else "수동"
-                sheet.update_cell(nr, idx_map['계좌유형'], at)
-                sheet.update_cell(nr, idx_map['종목명'], s_name)
-                sheet.update_cell(nr, idx_map['잔고수량'], int(qv))
-                sheet.update_cell(nr, idx_map['매수단가'], int(pv))
+                safe_update(sheet, nr, '계좌유형', at, idx_map)
+                safe_update(sheet, nr, '종목명', s_name, idx_map)
+                safe_update(sheet, nr, '잔고수량', int(qv), idx_map)
+                safe_update(sheet, nr, '매수단가', int(pv), idx_map)
                 
-                q_l, b_l = col_letter(idx_map['잔고수량']), col_letter(idx_map['매수단가'])
-                c_l = col_letter(idx_map['현재가2'])
-                ba_l, ea_l, p_l = col_letter(idx_map['매수금액']), col_letter(idx_map['평가금액']), col_letter(idx_map['평가손익'])
-                y_idx, y_l = idx_map['수익률2'], col_letter(idx_map['수익률2'])
+                # 수식 주입 로직 에러 방어 적용
+                q_l, b_l = col_letter(idx_map.get('잔고수량', 0)), col_letter(idx_map.get('매수단가', 0))
+                c_l = col_letter(idx_map.get('현재가2', idx_map.get('현재가1', 0)))
+                ba_l = col_letter(idx_map.get('매수금액', 0))
+                ea_l = col_letter(idx_map.get('평가금액', 0))
+                p_l = col_letter(idx_map.get('평가손익', 0))
+                y_idx = idx_map.get('수익률2', 0)
+                y_l = col_letter(y_idx) if y_idx else ""
 
-                sheet.update_cell(nr, idx_map['매수금액'], f"={q_l}{nr}*{b_l}{nr}")
-                sheet.update_cell(nr, idx_map['평가금액'], f"={q_l}{nr}*{c_l}{nr}")
-                sheet.update_cell(nr, idx_map['평가손익'], f"={ea_l}{nr}-{ba_l}{nr}")
-                sheet.update_cell(nr, y_idx, f"=IFERROR({p_l}{nr}/{ba_l}{nr}, 0)")
+                if ba_l and q_l and b_l: sheet.update_cell(nr, idx_map['매수금액'], f"={q_l}{nr}*{b_l}{nr}")
+                if ea_l and q_l and c_l: sheet.update_cell(nr, idx_map['평가금액'], f"={q_l}{nr}*{c_l}{nr}")
+                if p_l and ea_l and ba_l: sheet.update_cell(nr, idx_map['평가손익'], f"={ea_l}{nr}-{ba_l}{nr}")
+                if y_l and p_l and ba_l: sheet.update_cell(nr, y_idx, f"=IFERROR({p_l}{nr}/{ba_l}{nr}, 0)")
                 
                 if s_code:
                     c = str(s_code).strip().zfill(6)
-                    sheet.update_cell(nr, idx_map['종목코드'], c)
-                    sheet.update_cell(nr, idx_map['현재가2'], f'=GOOGLEFINANCE("KRX:{c}", "price")')
-                    sheet.update_cell(nr, idx_map['전일종가'], f'=GOOGLEFINANCE("KRX:{c}", "price") - GOOGLEFINANCE("KRX:{c}", "change")')
-                    sheet.update_cell(nr, idx_map['52주최고'], f'=GOOGLEFINANCE("KRX:{c}", "high52")')
-                    sheet.update_cell(nr, idx_map['52주최저'], f'=GOOGLEFINANCE("KRX:{c}", "low52")')
-                else: sheet.update_cell(nr, idx_map['현재가2'], int(pv))
+                    safe_update(sheet, nr, '종목코드', c, idx_map)
+                    safe_update(sheet, nr, '현재가2', f'=GOOGLEFINANCE("KRX:{c}", "price")', idx_map)
+                    safe_update(sheet, nr, '전일종가', f'=GOOGLEFINANCE("KRX:{c}", "price") - GOOGLEFINANCE("KRX:{c}", "change")', idx_map)
+                    safe_update(sheet, nr, '52주최고', f'=GOOGLEFINANCE("KRX:{c}", "high52")', idx_map)
+                    safe_update(sheet, nr, '52주최저', f'=GOOGLEFINANCE("KRX:{c}", "low52")', idx_map)
+                else: 
+                    safe_update(sheet, nr, '현재가2', int(pv), idx_map)
             
             elif s_name != "없음":
-                ti = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index[0]
-                if "수정" in mode:
-                    sheet.update_cell(ti+2, idx_map['잔고수량'], int(qv))
-                    sheet.update_cell(ti+2, idx_map['매수단가'], int(pv))
-                else:
-                    oq, oa = full_df.at[ti, '잔고수량'], full_df.at[ti, '매수단가']
-                    nq = oq + qv if action == "매수" else max(0, oq - qv)
-                    na = ((oq * oa) + (qv * pv)) / nq if action == "매수" and nq > 0 else oa
-                    sheet.update_cell(ti+2, idx_map['잔고수량'], int(nq))
-                    sheet.update_cell(ti+2, idx_map['매수단가'], int(na))
+                t_indices = full_df[(full_df['계좌번호'].astype(str).str.strip() == sel_acc) & (full_df['종목명'] == s_name)].index
+                if len(t_indices) > 0:
+                    ti = t_indices[0]
+                    if "수정" in mode:
+                        safe_update(sheet, ti+2, '잔고수량', int(qv), idx_map)
+                        safe_update(sheet, ti+2, '매수단가', int(pv), idx_map)
+                    else:
+                        oq, oa = full_df.at[ti, '잔고수량'], full_df.at[ti, '매수단가']
+                        nq = oq + qv if action == "매수" else max(0, oq - qv)
+                        na = ((oq * oa) + (qv * pv)) / nq if action == "매수" and nq > 0 else oa
+                        safe_update(sheet, ti+2, '잔고수량', int(nq), idx_map)
+                        safe_update(sheet, ti+2, '매수단가', int(na), idx_map)
+            
             st.cache_data.clear()
             st.rerun()
 
@@ -252,8 +265,9 @@ try:
         display_df = display_df.sort_values(by='수익률2', ascending=False)
         html_cards = ""
         for _, row in display_df.iterrows():
-            is_c = any(x in str(row['종목명']) for x in ["현금", "예수금"])
-            if is_c:
+            is_special = any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금"]) or (row['잔고수량'] == 0 and row['평가금액'] > 0)
+            
+            if is_special:
                 html_cards += f'<details class="premium-card"><summary><div class="row-layout"><div class="col-name"><div class="status-dot dot-gray"></div><span class="stock-name text-gray">{row["종목명"]}</span></div><div class="col-price">{row["평가금액"]:,.0f}원</div><div class="col-diff text-gray">-</div><div class="col-yield text-gray">-</div></div></summary></details>'
             else:
                 yield_v, now_p, prev_p = row['수익률2'], row['현재가2'], row['전일종가']
