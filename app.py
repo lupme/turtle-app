@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- [1] 시스템 설정 및 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V23", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V24", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -23,9 +23,11 @@ st.markdown("""
     
     .list-header { color: #6C7A89; font-size: 0.85rem; font-weight: 600; padding: 0 20px 10px 20px; border-bottom: 1px solid #1e293b; margin-bottom: 10px; }
     .row-layout { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; }
-    .col-name { width: 35%; display: flex; align-items: center; gap: 8px; overflow: hidden; }
-    .col-price { width: 22%; text-align: right; font-size: 1.05rem; font-weight: 800; color: #f8fafc; }
-    .col-diff { width: 23%; text-align: right; font-size: 0.9rem; font-weight: 700; }
+    
+    /* 종목명 너비 축소 (35% -> 28%), 등락폭 공간 확대 */
+    .col-name { width: 28%; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+    .col-price { width: 24%; text-align: right; font-size: 1.05rem; font-weight: 800; color: #f8fafc; }
+    .col-diff { width: 28%; text-align: right; font-size: 0.9rem; font-weight: 700; }
     .col-yield { width: 20%; text-align: right; font-size: 1.05rem; font-weight: 800; }
     
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
@@ -117,7 +119,6 @@ def load_data():
     
     full_df.columns = full_df.columns.str.strip()
     
-    # 🚨 현재가1, 수익률1 등 불필요한 참조 제거. 오직 사령관님의 원본 구조만 참조
     essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '수익률2', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
     
     for col in essential_cols:
@@ -128,11 +129,14 @@ def load_data():
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-    # 찌꺼기 데이터 필터링
     invalid_keywords = '합계|총계|총액|잔고|총자산'
     df = df[df['종목명'].astype(str).str.strip() != '']
     df = df[~df['종목명'].astype(str).str.contains(invalid_keywords, na=False)]
-    df = df[df['잔고수량'] > 0] 
+    
+    # [무결성 확보] 현금/예수금은 수량이 0이어도 통과시킵니다.
+    is_cash = df['종목명'].astype(str).str.contains('현금|예수금', na=False)
+    has_qty = df['잔고수량'] > 0
+    df = df[is_cash | has_qty]
     
     return sheet, df, full_df
 
@@ -149,7 +153,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V23</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V24</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -164,18 +168,23 @@ try:
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
-    # 파이썬 재계산 로직 삭제: 구글 시트의 원본 데이터를 그대로 100% 신뢰하여 사용
+    # 시트의 평가금액을 100% 신뢰하여 총자산 및 현금 합산
     total_eval = display_df['평가금액'].sum()
     total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
-    valid_prev = display_df[display_df['전일종가'] > 0]
-    total_prev = (valid_prev['전일종가'] * valid_prev['잔고수량']).sum() if not valid_prev.empty else 0
-    daily_delta = valid_prev['평가금액'].sum() - total_prev if total_prev > 0 else 0
+    # [무결성 수식] 전일 대비 증감 = Sum(당일비 * 보유수량). 
+    # 평가금액 총합의 차이로 계산하지 않고, 순수 주가 변동분만 합산하여 수학적 오류 원천 차단.
+    daily_delta = 0
+    for _, row in display_df.iterrows():
+        if not any(x in str(row['종목명']) for x in ["현금", "예수금"]):
+            now_p = row['현재가2']
+            prev_p = row['전일종가']
+            if prev_p > 0 and now_p > 0:
+                daily_delta += (now_p - prev_p) * row['잔고수량']
     
     kc1, kc2, kc3 = st.columns(3)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    if total_prev > 0: kc2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
-    else: kc2.metric("전일 대비 증감", "지표 수집중", delta=None)
+    kc2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
     kc3.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
     with st.sidebar:
@@ -217,7 +226,6 @@ try:
                 sheet.update_cell(nr, idx_map['잔고수량'], int(qty_val))
                 sheet.update_cell(nr, idx_map['매수단가'], int(price_val))
                 
-                # 수식 주입 (현재가2 우선 반영)
                 q_l, b_l = col_letter(idx_map['잔고수량']), col_letter(idx_map['매수단가'])
                 c_l = col_letter(idx_map['현재가2']) if '현재가2' in idx_map else ""
                 ba_l, ea_l, p_l = col_letter(idx_map.get('매수금액',0)), col_letter(idx_map.get('평가금액',0)), col_letter(idx_map.get('평가손익',0))
@@ -260,7 +268,7 @@ try:
             <div class="col-name">종목명</div>
             <div class="col-price">현재가</div>
             <div class="col-diff">당일비(%)</div>
-            <div class="col-yield">수익률</div>
+            <div class="col-yield">누적 수익률</div>
         </div>
         """, unsafe_allow_html=True)
         
