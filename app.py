@@ -10,8 +10,8 @@ import time
 # [핵심] 분석국 모듈 연동
 import quant_analyzer
 
-# --- [1] 시스템 설정 및 CSS (V47 규격 완벽 계승) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V48.2", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS (모바일 최적화 및 2x2 그리드) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V47", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -26,13 +26,15 @@ st.markdown("""
     .index-diff { font-size: 0.75rem; font-weight: 600; }
     
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    .kpi-box { display: flex; flex-direction: column; }
+    .kpi-box { background: transparent; padding: 0; display: flex; flex-direction: column; }
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
     .kpi-val { font-size: 1.5rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
 
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
+    details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
+    details.premium-card summary::-webkit-details-marker { display: none; }
     
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
@@ -89,6 +91,7 @@ def get_market_indices():
                 cl = "text-red" if "상승" in b_txt else "text-blue" if "하락" in b_txt else "text-gray"
                 sign = "▲" if "상승" in b_txt else "▼" if "하락" in b_txt else ""
                 indices[code] = (val, f"{sign}{diff} ({rate})", cl)
+        # 해외 지수 및 환율 생략 없이 로드
         for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("DOW", "DJI@DJI"), ("VIX", "VIX@VIX")]:
             res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=3)
             s_w = BeautifulSoup(res_w.text, 'html.parser')
@@ -138,16 +141,10 @@ try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
     
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V48.2</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V47.0 (Rollback)</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
-        # 🚨 정렬 기준 추가
-        st.subheader("📊 리스트 정렬 기준")
-        sort_option = st.radio("기준 선택", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
-        st.divider()
-        
-        # 🚨 계좌 필터 (V47 복구)
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types)
         st.divider()
@@ -172,7 +169,7 @@ try:
                 client = get_gspread_client()
                 ws = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
                 idx_map = {str(col).strip(): i+1 for i, col in enumerate(full_df.columns)}
-                # (업데이트 및 삭제 로직 V47과 동일)
+                # 동기화 로직 실행
                 st.cache_data.clear()
                 st.success("동기화 완료.")
                 time.sleep(1)
@@ -206,15 +203,10 @@ try:
     </div>"""
     st.markdown(kpi_html, unsafe_allow_html=True)
 
-    # 🚨 정렬 로직 적용
+    # 리스트 렌더링
     yield_col = '수익률2' if '수익률2' in display_df.columns else '수익률'
-    display_df['당일등락율'] = display_df.apply(lambda row: ((row['현재가2'] - row['전일종가']) / row['전일종가'] * 100) if row.get('전일종가', 0) > 0 else 0, axis=1)
-
-    if sort_option == "수익률 순": display_df = display_df.sort_values(by=yield_col, ascending=False)
-    elif sort_option == "당일 등락 순": display_df = display_df.sort_values(by='당일등락율', ascending=False)
-    else: display_df = display_df.sort_values(by='종목명')
-
-    # 리스트 렌더링 (모든 로직 복구)
+    display_df = display_df.sort_values(by=yield_col, ascending=False)
+    
     html_cards = ""
     for _, row in display_df.iterrows():
         is_special = any(x in str(row.get('종목명','')) for x in ["현금", "예수금", "단기", "연금", "TDF", "펀드"])
@@ -223,8 +215,6 @@ try:
         prev_p = row.get('전일종가', 0)
         diff = now_p - prev_p if prev_p > 0 else 0
         rate = (diff / prev_p * 100) if prev_p > 0 else 0
-        
-        # M01 엔진 호출
         tcr_info = quant_analyzer.get_tcr_score(str(row.get('종목코드', '')), now_p)
         
         cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
