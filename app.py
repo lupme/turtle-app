@@ -7,8 +7,11 @@ import requests
 from bs4 import BeautifulSoup
 import time
 
-# --- [1] 시스템 설정 및 CSS (모바일 압축 및 2x2 그리드 최적화) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V46", layout="wide", initial_sidebar_state="expanded")
+# 🚨 [핵심] 방금 만든 분석 모듈을 메인 관제소로 불러옵니다!
+import quant_analyzer
+
+# --- [1] 시스템 설정 및 CSS (모바일 압축 및 2x2 그리드 최적화 유지) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V47", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -17,7 +20,6 @@ st.markdown("""
     
     .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; letter-spacing: 1px; padding-top: 5px; margin-bottom: 15px; }
     
-    /* 상단 지수 전광판 (모바일 2x2 바둑판 압축) */
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; gap: 8px 0; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 2px; }
@@ -27,20 +29,17 @@ st.markdown("""
     .streamlit-expanderHeader { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 8px !important; padding: 10px !important; min-height: 40px !important; }
     div[data-testid="stExpander"] div[role="button"] p { font-size: 0.85rem !important; font-weight: 700 !important; color: rgb(108,122,137) !important; }
     
-    /* KPI 4대 지표 커스텀 (Streamlit 기본 모듈 폐기 -> HTML Grid 도입) */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
     .kpi-box { background: transparent; padding: 0; display: flex; flex-direction: column; }
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
     .kpi-val { font-size: 1.5rem; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
     
-    /* 프리미엄 카드 디자인 */
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
     details.premium-card summary::-webkit-details-marker { display: none; }
     
-    /* PC 레이아웃 */
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
@@ -63,35 +62,30 @@ st.markdown("""
     .metric-value { font-size: 1.05rem; font-weight: 700; color: #ffffff; }
     .metric-highlight { color: rgb(70,130,180); font-weight: 800; font-size: 1.1rem; }
     
-    /* 📱 모바일 환경 최적화 (폭 768px 이하) */
     @media (max-width: 768px) {
         .hq-title { font-size: 1.1rem; margin-bottom: 10px; }
-        
-        /* 지수 전광판 2x2 정렬 */
         .index-container { padding: 10px; gap: 10px 0; }
-        .index-item { width: 48%; } /* 4개에서 2개씩 2줄로 배치 */
+        .index-item { width: 48%; }
         .index-val { font-size: 0.95rem; }
         .index-diff { font-size: 0.7rem; }
         
-        /* KPI 4대 지표 2x2 압축 */
         .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 12px 10px; margin-bottom: 15px; }
         .kpi-label { font-size: 0.7rem; margin-bottom: 2px; }
         .kpi-val { font-size: 1.15rem; }
         .kpi-delta { font-size: 0.75rem; display: block; margin-left: 0; margin-top: 2px; }
         
-        /* 카드 내부 정렬 어긋남 완벽 통제 */
         .card-header-flex { flex-direction: column; align-items: stretch; gap: 8px; }
         .card-left { width: 100%; border-bottom: 1px dashed rgba(30,41,59, 0.7); padding-bottom: 8px; justify-content: flex-start; }
         .stock-name { font-size: 1.05rem; }
         .card-right { width: 100%; display: flex; flex-direction: row; justify-content: space-between; }
-        .val-box { width: 32%; align-items: center; } /* 3칸 균등 분배 */
+        .val-box { width: 32%; align-items: center; }
         .val-label { font-size: 0.6rem; }
         .val-num { font-size: 0.95rem; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 보조 함수 (동기화 및 데이터 스캔) ---
+# --- [2] 거시 지표 및 데이터 스캐너 ---
 def safe_update(sheet, row, col_name, val, idmap):
     if col_name in idmap and idmap[col_name] > 0:
         sheet.update_cell(row, idmap[col_name], val)
@@ -175,7 +169,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V46.0</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V47.0 (T-Q Engine 탑재)</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types, label_visibility="collapsed")
@@ -212,7 +206,6 @@ try:
                 if row['전일종가'] > 0 and row['현재가2'] > 0:
                     daily_delta += diff * row['잔고수량']
     
-    # 🚨 [V46 핵심] Streamlit 기본 Metric 대신 자체 디자인 HTML Grid 탑재
     roi_cl = "text-red" if total_roi > 0 else "text-blue" if total_roi < 0 else "text-gray"
     roi_sign = "▲" if total_roi > 0 else "▼" if total_roi < 0 else ""
     delta_cl = "text-red" if daily_delta > 0 else "text-blue" if daily_delta < 0 else "text-gray"
@@ -240,7 +233,6 @@ try:
     """
     st.markdown(kpi_html, unsafe_allow_html=True)
     
-    # 전략 사령부 (기능 유지)
     with st.sidebar:
         st.header("🎯 전략 사령부")
         target_val = st.number_input("함대 목표 자산 (원)", value=830000000, step=10000000)
@@ -346,6 +338,9 @@ try:
             diff = now_p - prev_p if prev_p > 0 else 0
             rate = (diff / prev_p * 100) if prev_p > 0 else 0
             
+            # 🚨 [핵심] M01 작전국 모듈을 호출하여 확신율(TCR) 데이터를 가져옵니다.
+            tcr_info = quant_analyzer.get_tcr_score(str(row.get('종목코드', '')), now_p)
+            
             if is_special:
                 y_str = f"{y_val*100:,.2f}%" if y_val != 0 else "-"
                 html_cards += f"""
@@ -373,6 +368,7 @@ try:
                 txt, pos_cl = get_position_text(now_p, low52, high52)
                 y_display = y_val * 100 if -1 < y_val < 1 else y_val
                 
+                # 카드 내부에 확신율(TCR) 데이터를 추가로 표시합니다.
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
@@ -392,8 +388,13 @@ try:
                             <div class="metric-box"><div class="metric-label">매수 총액</div><div class="metric-value">{row.get('매수금액',0):,.0f}원</div></div>
                             <div class="metric-box"><div class="metric-label">누적 손익</div><div class="metric-value {cl}">{row.get('평가손익',0):,.0f}원</div></div>
                             <div class="metric-box"><div class="metric-label">평균 단가 / 수량</div><div class="metric-value">{row.get('매수단가',0):,.0f}원 <span class='text-gray'>({row.get('잔고수량',0):,.0f}주)</span></div></div>
+                            <div class="metric-box"><div class="metric-label">🔥 거북이 확신율 (TCR)</div><div class="metric-value" style="color: {tcr_info['color']};">{tcr_info['score']}% <span style="font-size:0.75rem;">({tcr_info['status']})</span></div></div>
                         </div>
                     </div>
                 </details>"""
         st.markdown(html_cards, unsafe_allow_html=True)
+        
+        # 🚨 [핵심] 화면 맨 아래에 작전국의 범례를 불러와 출력합니다.
+        st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
+        
 except Exception as e: st.error(f"함대 기동 중지: {e}")
