@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- [1] 시스템 설정 및 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V26", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V27", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -52,7 +52,8 @@ st.markdown("""
     .pos-waist { background-color: rgba(245, 158, 11, 0.1); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
     .pos-feet { background-color: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.3); }
     
-    [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.8rem !important; font-weight: 800 !important; }
+    [data-testid="stMetricValue"] { color: #4682B4 !important; font-size: 1.6rem !important; font-weight: 800 !important; }
+    [data-testid="stMetricDelta"] { font-size: 1rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -64,7 +65,6 @@ def col_letter(n):
     return string
 
 def safe_update(sheet, row, col_name, val, idmap):
-    """에러 방지용 안전 주입 엔진"""
     if col_name in idmap:
         sheet.update_cell(row, idmap[col_name], val)
 
@@ -104,6 +104,7 @@ def get_market_indices():
     return indices
 
 def get_gspread_client():
+    # 매번 신규 인증 생성 (Sync 에러의 원인인 Session Cache 박멸)
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info:
         key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -116,7 +117,7 @@ def load_data():
     full_df = pd.DataFrame(sheet.get_all_records())
     full_df.columns = full_df.columns.str.strip()
     
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '수익률2', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
     for col in essential_cols:
         if col not in full_df.columns: full_df[col] = 0
             
@@ -125,21 +126,18 @@ def load_data():
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
 
-    # 쓰레기 데이터 정리
-    invalid_keywords = '합계|총계|총액|평가금|총자산'
+    # 1. 찌꺼기 행(합계) 제거
+    invalid_keywords = '합계|총계|총액|잔고|총자산'
     df = df[df['종목명'].astype(str).str.strip() != '']
     df = df[~df['종목명'].astype(str).str.contains(invalid_keywords, na=False)]
     
-    # [V26.0 IRP 무결성 필터] 수량이 없어도 평가금액이 있거나 이름이 특수자산이면 합산
-    is_special_asset = df['종목명'].astype(str).str.contains('현금|예수금|단기|연금|펀드', na=False)
-    has_qty = df['잔고수량'] > 0
-    has_value = df['평가금액'] > 0
-    df = df[is_special_asset | has_qty | has_value]
+    # 2. [무결성 확보] 잔고수량 여부와 상관없이, 매수금액이나 평가금액이 존재하면 무조건 합산 (펀드/연금 증발 방지)
+    df = df[(df['매수금액'] != 0) | (df['평가금액'] != 0) | (df['종목명'].astype(str).str.contains('현금|예수금', na=False))]
     
     return sheet, df, full_df
 
 def get_position_text(now, low, high):
-    if high == 0 or low == 0 or high <= low or now == 0: return "데이터 수집중", "pos-unknown"
+    if high == 0 or low == 0 or high <= low or now == 0: return "지표 수집중", "pos-unknown"
     pos = (now - low) / (high - low) * 100
     if pos >= 85: return f"머리 (고점 {pos:.0f}%)", "pos-head"
     if pos >= 35: return f"허리 (평균 시세 {pos:.0f}%)", "pos-waist"
@@ -151,7 +149,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V26</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V27</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -166,20 +164,31 @@ try:
 
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
+    # 1. 총 함대 자산 (엑셀과 1원 단위까지 완벽 동기화)
     total_eval = display_df['평가금액'].sum()
+    
+    # 2. 총 누적 원금 및 손익 계산 (원금 대비 성과)
+    total_invest = display_df['매수금액'].sum()
+    total_profit = display_df['평가손익'].sum()
+    total_roi = (total_profit / total_invest * 100) if total_invest > 0 else 0
+    
+    # 3. 예수금
     total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
     
+    # 4. 전일비 정밀 계산 (주식만 대상)
     daily_delta = 0
     for _, row in display_df.iterrows():
-        # 현금성 자산이 아닌 '주식'만 전일비 변동 계산
-        if not any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금"]):
+        if not any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금", "펀드"]):
             now_p, prev_p = row['현재가2'], row['전일종가']
-            if prev_p > 0 and now_p > 0: daily_delta += (now_p - prev_p) * row['잔고수량']
+            if prev_p > 0 and now_p > 0 and row['잔고수량'] > 0: 
+                daily_delta += (now_p - prev_p) * row['잔고수량']
     
-    kc1, kc2, kc3 = st.columns(3)
+    # 4대 KPI 전광판
+    kc1, kc2, kc3, kc4 = st.columns(4)
     kc1.metric("총 함대 자산", f"{total_eval:,.0f}원")
-    kc2.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
-    kc3.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
+    kc2.metric("총 누적 손익 (원금대비)", f"{total_profit:,.0f}원", delta=f"{total_roi:,.2f}%")
+    kc3.metric("전일 대비 증감", f"{daily_delta:,.0f}원", delta=f"{daily_delta:,.0f}")
+    kc4.metric("기동 대기 예수금", f"{total_cash:,.0f}원")
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
@@ -219,13 +228,12 @@ try:
                 safe_update(sheet, nr, '잔고수량', int(qv), idx_map)
                 safe_update(sheet, nr, '매수단가', int(pv), idx_map)
                 
-                # 수식 주입 로직 에러 방어 적용
                 q_l, b_l = col_letter(idx_map.get('잔고수량', 0)), col_letter(idx_map.get('매수단가', 0))
                 c_l = col_letter(idx_map.get('현재가2', idx_map.get('현재가1', 0)))
                 ba_l = col_letter(idx_map.get('매수금액', 0))
                 ea_l = col_letter(idx_map.get('평가금액', 0))
                 p_l = col_letter(idx_map.get('평가손익', 0))
-                y_idx = idx_map.get('수익률2', 0)
+                y_idx = idx_map.get('수익률2', idx_map.get('수익률', 0))
                 y_l = col_letter(y_idx) if y_idx else ""
 
                 if ba_l and q_l and b_l: sheet.update_cell(nr, idx_map['매수금액'], f"={q_l}{nr}*{b_l}{nr}")
@@ -262,30 +270,68 @@ try:
 
     if not display_df.empty:
         st.markdown('<div class="list-header"><div class="row-layout"><div class="col-name">종목명</div><div class="col-price">현재가</div><div class="col-diff">당일비(%)</div><div class="col-yield">누적수익률</div></div></div>', unsafe_allow_html=True)
-        display_df = display_df.sort_values(by='수익률2', ascending=False)
-        html_cards = ""
+        
+        # 뻥튀기 방지: 개별 종목의 수익률은 철저하게 '(평가금액 - 매수금액)/매수금액' 으로 계산하여 정렬
+        processed_cards = []
         for _, row in display_df.iterrows():
-            is_special = any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금"]) or (row['잔고수량'] == 0 and row['평가금액'] > 0)
+            eval_amt = row['평가금액']
+            inv_amt = row['매수금액']
+            true_yield = (eval_amt - inv_amt) / inv_amt * 100 if inv_amt > 0 else 0
+            
+            row_dict = row.to_dict()
+            row_dict['무결성_수익률'] = true_yield
+            processed_cards.append(row_dict)
+            
+        cards_df = pd.DataFrame(processed_cards).sort_values(by='무결성_수익률', ascending=False)
+        
+        html_cards = ""
+        for _, row in cards_df.iterrows():
+            # 현금, 예수금, 연금, 펀드 등 단가/수량 계산이 불가한 특수 상품 분리
+            is_special = any(x in str(row['종목명']) for x in ["현금", "예수금", "단기"]) or (row['잔고수량'] == 0 and row['매수금액'] > 0)
             
             if is_special:
-                html_cards += f'<details class="premium-card"><summary><div class="row-layout"><div class="col-name"><div class="status-dot dot-gray"></div><span class="stock-name text-gray">{row["종목명"]}</span></div><div class="col-price">{row["평가금액"]:,.0f}원</div><div class="col-diff text-gray">-</div><div class="col-yield text-gray">-</div></div></summary></details>'
+                yield_v = row['무결성_수익률']
+                yield_str = f"{yield_v:,.2f}%" if yield_v != 0 else "-"
+                
+                html_cards += f"""
+                <details class="premium-card">
+                    <summary><div class="row-layout">
+                        <div class="col-name"><div class="status-dot dot-gray"></div><span class="stock-name text-gray">{row["종목명"]}</span></div>
+                        <div class="col-price">{row["평가금액"]:,.0f}원</div>
+                        <div class="col-diff text-gray">-</div>
+                        <div class="col-yield text-gray">{yield_str}</div>
+                    </div></summary>
+                    <div class="card-body"><div class="metric-grid">
+                        <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-highlight">{row['평가금액']:,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label">투입 원금</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label">누적 손익</div><div class="metric-value">{row['평가손익']:,.0f}원</div></div>
+                    </div></div>
+                </details>"""
             else:
-                yield_v, now_p, prev_p = row['수익률2'], row['현재가2'], row['전일종가']
+                yield_v = row['무결성_수익률']
+                now_p, prev_p = row['현재가2'], row['전일종가']
                 diff = now_p - prev_p if prev_p > 0 else 0
                 rate = (diff / prev_p * 100) if prev_p > 0 else 0
-                cl = "text-red" if diff > 0 else "text-blue" if diff < 0 else "text-gray"
-                dt = "dot-red" if diff > 0 else "dot-blue" if diff < 0 else "dot-gray"
-                ds = f"{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f} ({rate:.2f}%)" if diff != 0 else "-"
+                cl = "text-red" if yield_v > 0 else "text-blue" if yield_v < 0 else "text-gray"
+                dt = "dot-red" if yield_v > 0 else "dot-blue" if yield_v < 0 else "dot-gray"
+                
+                diff_color = "text-red" if diff > 0 else "text-blue" if diff < 0 else "text-gray"
+                ds = f"<span class='{diff_color}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f} ({rate:.2f}%)</span>" if diff != 0 else "-"
                 txt, pos_cl = get_position_text(now_p, row['52주최저'], row['52주최고'])
                 
                 html_cards += f"""
                 <details class="premium-card">
-                    <summary><div class="row-layout"><div class="col-name"><div class="status-dot {dt}"></div><span class="stock-name">{row["종목명"]}</span></div><div class="col-price {cl}">{now_p:,.0f}</div><div class="col-diff {cl}">{ds}</div><div class="col-yield {cl}">{yield_v*100:.2f}%</div></div></summary>
+                    <summary><div class="row-layout">
+                        <div class="col-name"><div class="status-dot {dt}"></div><span class="stock-name">{row["종목명"]}</span></div>
+                        <div class="col-price">{now_p:,.0f}</div>
+                        <div class="col-diff">{ds}</div>
+                        <div class="col-yield {cl}">{yield_v:.2f}%</div>
+                    </div></summary>
                     <div class="card-body"><div class="pos-badge {pos_cl}">📍 시세위치: {txt}</div><div class="metric-grid">
                         <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-highlight">{row['평가금액']:,.0f}원</div></div>
                         <div class="metric-box"><div class="metric-label">매수 총액</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
-                        <div class="metric-box"><div class="metric-label">보유 수량</div><div class="metric-value">{row['잔고수량']:,.0f}주</div></div>
-                        <div class="metric-box"><div class="metric-label">평균 단가</div><div class="metric-value">{row['매수단가']:,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label">누적 손익</div><div class="metric-value {cl}">{row['평가손익']:,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label">평균 단가 / 수량</div><div class="metric-value">{row['매수단가']:,.0f}원 <span class='text-gray'>({row['잔고수량']:,.0f}주)</span></div></div>
                         <div class="metric-box"><div class="metric-label">52주 최고</div><div class="metric-value">{row['52주최고']:,.0f}원</div></div>
                         <div class="metric-box"><div class="metric-label">52주 최저</div><div class="metric-value">{row['52주최저']:,.0f}원</div></div>
                     </div></div>
