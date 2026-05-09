@@ -6,8 +6,8 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-# --- [1] V21.0 시스템 설정 및 테마 (Steel Blue & Slate Gray 규격 엄수) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V21", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V22", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -15,14 +15,12 @@ st.markdown("""
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.4rem; color: #4682B4; font-weight: 800; letter-spacing: 1px; padding-top: 10px; margin-bottom: 20px; }
     
-    /* 지수 전광판 */
     .index-container { display: flex; justify-content: space-between; background: #0f172a; padding: 15px 20px; border-radius: 12px; border: 1px solid #1e293b; margin-bottom: 20px; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.85rem; color: #6C7A89; font-weight: 700; margin-bottom: 4px; }
     .index-val { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
-    /* 리스트 및 카드 (HTML 충돌 방지를 위해 순수 CSS+Streamlit 컴포넌트 융합) */
     [data-testid="stExpander"] { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-left: 4px solid #4682B4 !important; border-radius: 8px !important; margin-bottom: 12px !important; }
     [data-testid="stExpander"] summary { padding: 1rem !important; list-style-type: none !important; }
     [data-testid="stExpander"] summary p { font-size: 1.1rem !important; font-weight: 700 !important; color: #f8fafc !important; width: 100%; }
@@ -93,7 +91,6 @@ def fetch_emergency_price(ticker):
         return int(price_tag.text.replace(',', '')) if price_tag else 0
     except: return 0
 
-# 인증 튕김(Auth Error) 방지를 위해 캐시 제거
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info:
@@ -107,30 +104,22 @@ def load_data():
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     
-    # 1. 공백 완벽 제거 (KeyError 원천 차단)
     full_df.columns = full_df.columns.str.strip()
     
-    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '현재가1', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
+    # [수정 완료] 수익률, 수익률1을 반드시 포함시켜 KeyError 완벽 방어
+    essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '현재가2', '현재가1', '수익률', '수익률1', '매수금액', '평가금액', '평가손익', '전일종가', '52주최고', '52주최저']
     
-    # 2. 필수 열 누락 시 0으로 안전하게 채움
     for col in essential_cols:
         if col not in full_df.columns: full_df[col] = 0
             
     df = full_df.copy()
-    
-    # 3. 데이터 클렌징 (유령 데이터 및 문자열 필터)
     for col in essential_cols:
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
             
-    # 수익률 열의 이름이 무엇이든 유연하게 캐치
     target_yield = next((col for col in ['수익률', '수익률1'] if col in full_df.columns), None)
-    if target_yield:
-        df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0)
-    else:
-        df['수익률_숫자'] = 0.0
+    df['수익률_숫자'] = pd.to_numeric(df[target_yield].astype(str).str.replace('%', '').str.replace(',', ''), errors='coerce').fillna(0) if target_yield else 0.0
 
-    # 4. 무결성 필터: 빈칸, 합계 행, 수량 0인 행 완전 격리
     df = df[df['종목명'].astype(str).str.strip() != '']
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액', na=False)]
     df = df[df['잔고수량'] > 0] 
@@ -140,7 +129,7 @@ def load_data():
 def get_position_text(now, low, high):
     if high == 0 or low == 0 or high <= low or now == 0: return "데이터 수집중", "pos-unknown"
     pos = (now - low) / (high - low) * 100
-    if pos >= 85: return f"머리 (최고점 근접 {pos:.0f}%)", "pos-head"
+    if pos >= 85: return f"머리 (고점 {pos:.0f}%)", "pos-head"
     if pos >= 35: return f"허리 (평균 시세 {pos:.0f}%)", "pos-waist"
     return f"발바닥 (바닥권 {pos:.0f}%)", "pos-feet"
 
@@ -150,7 +139,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V21</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V22</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -179,6 +168,17 @@ try:
 
     final_df = pd.DataFrame(processed_data).sort_values(by='보정수익률', ascending=False) if processed_data else pd.DataFrame()
     
+    # 🚨 [긴급 디버그 모드] 사령관님의 요청에 따라 데이터 전체를 화면에 띄웁니다.
+    with st.expander("🚨 긴급 스프레드시트 원본 검수 (1,000억 오류 추적기)", expanded=False):
+        st.markdown("<h4 style='color:#ef4444;'>1. 구글 시트 원본 데이터 (필터링 전)</h4>", unsafe_allow_html=True)
+        st.write("아래 표에서 '잔고수량'이나 '현재가'가 비정상적으로 큰 행(Row)을 찾아내십시오.")
+        st.dataframe(full_df[['종목명', '잔고수량', '매수단가', '현재가2', '현재가1', '평가금액']])
+        
+        st.markdown("<h4 style='color:#3b82f6;'>2. 파이썬 계산 결과 (잔고수량 x 시세)</h4>", unsafe_allow_html=True)
+        st.write("파이썬이 최종적으로 합산한 '보정평가액'입니다. 여기서 1,000억 대 숫자를 만드는 종목을 식별하십시오.")
+        if not final_df.empty:
+            st.dataframe(final_df[['종목명', '잔고수량', '보정가', '보정평가액']])
+
     total_eval = final_df['보정평가액'].sum() if not final_df.empty else 0
     total_cash = final_df[final_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['보정평가액'].sum() if not final_df.empty else 0
     
@@ -218,7 +218,7 @@ try:
         price_val = price if price else 0
         
         if st.button("명령 확정 (Sync)"):
-            client = get_gspread_client() # 신규 인증 강제 발급
+            client = get_gspread_client() 
             sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
             idx_map = {col.strip(): i+1 for i, col in enumerate(full_df.columns)}
             
