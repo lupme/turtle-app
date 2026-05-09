@@ -1,4 +1,3 @@
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import streamlit as st
@@ -16,7 +15,6 @@ def fetch_single_stock(stock_code, current_price):
         soup = BeautifulSoup(res.text, 'html.parser')
         
         high52, low52, frgn_rate = current_price, current_price, 0.0
-        # 52주 최고/최저 추출
         info = soup.select_one(".no_info")
         if info:
             for tr in info.find_all("tr"):
@@ -26,7 +24,6 @@ def fetch_single_stock(stock_code, current_price):
                         high52 = int(re.sub(r'[^0-9]', '', ems[0].text))
                         low52 = int(re.sub(r'[^0-9]', '', ems[1].text))
                     break
-        # 외국인 소진율 추출
         th_tags = soup.find_all('th')
         for th in th_tags:
             if "외국인소진율" in th.text:
@@ -41,10 +38,10 @@ def fetch_single_stock(stock_code, current_price):
         return f_score, t_score, v_score
     except: return 50.0, 50.0, 50.0
 
-@st.cache_data(ttl=300) # 5분 캐싱
+@st.cache_data(ttl=300)
 def get_bulk_tcr(stocks_list):
     """[병렬 엔진] 여러 종목을 동시에 스캔하여 속도 폭발"""
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=15) as executor:
         results = list(executor.map(lambda x: fetch_single_stock(x[0], x[1]), stocks_list))
     
     tcr_data = []
@@ -59,5 +56,5 @@ def get_bulk_tcr(stocks_list):
 
 def get_analysis_legend():
     return """<div style="margin-top:10px; padding:15px; border-top:1px solid #1e293b; border-radius:8px;">
-        <p style="color:#6C7A89; font-size:0.8rem; font-weight:700;">[M01: T-Q 병렬 엔진 V51.0]</p>
-        <p style="color:#6C7A89; font-size:0.75rem;">* 실시간 수급(40%) + 추세(40%) + 방어(20%) / 병렬 스캔 방식</p></div>"""
+        <p style="color:#6C7A89; font-size:0.8rem; font-weight:700;">[M01: T-Q 병렬 엔진 V52]</p>
+        <p style="color:#6C7A89; font-size:0.75rem;">* 실시간 수급(40%) + 추세(40%) + 방어(20%) 가중 평균 / 병렬 기동 방식</p></div>"""
