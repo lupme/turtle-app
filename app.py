@@ -6,8 +6,8 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-# --- [1] 시스템 설정 및 모바일 최적화 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V36", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS (모바일 최적화 규격 엄수) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V37", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -21,12 +21,18 @@ st.markdown("""
     .index-val { font-size: 1.15rem; font-weight: 800; color: #f8fafc; }
     .index-diff { font-size: 0.85rem; font-weight: 600; }
     
+    .list-header { color: rgb(108,122,137); font-size: 0.85rem; font-weight: 600; padding: 0 16px 8px 16px; border-bottom: 1px solid #1e293b; margin-bottom: 10px; display: flex; justify-content: space-between; gap: 8px; }
+    .header-col { width: 28%; text-align: left; }
+    .header-price { width: 20%; text-align: right; }
+    .header-diff { width: 28%; text-align: right; }
+    .header-yield { width: 24%; text-align: right; }
+
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 16px 16px; cursor: pointer; list-style: none; }
     details.premium-card summary::-webkit-details-marker { display: none; }
     
-    .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+    .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px;}
     .card-left { display: flex; align-items: center; gap: 8px; width: 45%; }
     .card-right { display: flex; flex-direction: column; align-items: flex-end; width: 55%; text-align: right; }
     .card-price { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.5px; }
@@ -61,14 +67,16 @@ st.markdown("""
         .stock-name { font-size: 0.95rem; }
         .card-price { font-size: 1.05rem; }
         .card-sub { font-size: 0.8rem; }
+        [data-testid="stMetricValue"] { font-size: 1.3rem !important; }
+        [data-testid="stMetricDelta"] { font-size: 0.9rem !important; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 네이버 금융 라이브 스캐너 (구글 시트 수식 의존도 0%) ---
+# --- [2] 네이버 금융 라이브 스캐너 (캐싱 적용으로 속도 향상) ---
+@st.cache_data(ttl=120) # 2분 동안 캐싱
 def get_naver_stock_info(code):
     if pd.isna(code) or str(code).strip() in ["", "0"]: return 0, 0, 0, 0
-    # 구글 시트에서 0이 잘려도 파이썬이 강제로 6자리 숫자로 맞춰서 검색
     clean_code = str(int(float(code))).zfill(6) if str(code).replace('.','').isdigit() else str(code).strip()
     
     try:
@@ -98,7 +106,7 @@ def get_naver_stock_info(code):
     except:
         return 0, 0, 0, 0
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120) # 2분 동안 캐싱
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray")}
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -123,14 +131,13 @@ def get_gspread_client():
     return gspread.authorize(Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']))
 
 # --- [3] 데이터베이스 로드 ---
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60) # 1분 동안 캐싱
 def load_data():
     client = get_gspread_client()
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     full_df.columns = full_df.columns.str.strip()
     
-    # 핵심 열만 확보. 시트에 수식이 깨져있어도 상관없습니다.
     essential_cols = ['계좌번호', '계좌유형', '종목명', '종목코드', '잔고수량', '매수단가', '매수금액', '평가금액']
     for col in essential_cols:
         if col not in full_df.columns: full_df[col] = 0
@@ -162,7 +169,7 @@ try:
     indices = get_market_indices()
     
     c_title, c_space, c_filter = st.columns([4, 1, 3])
-    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V36 (LIVE ENGINE)</div>', unsafe_allow_html=True)
+    with c_title: st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V37 (OPTIMIZED LIVE)</div>', unsafe_allow_html=True)
     with c_filter:
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("필터", acc_types, label_visibility="collapsed")
@@ -186,7 +193,6 @@ try:
     total_cash = 0
 
     for _, row in display_df.iterrows():
-        # 현금, 연금 등 코드가 없는 자산은 시트의 정적 데이터를 100% 수용
         is_special = any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금", "펀드"]) or (row['잔고수량'] == 0 and row['매수금액'] > 0)
         
         data = row.to_dict()
@@ -205,7 +211,7 @@ try:
             data.update({'live_eval': e_amt, 'live_inv': i_amt, 'live_prof': profit, 'live_yield': yld, 'now_p': 0, 'diff': 0, 'rate': 0, 'high': 0, 'low': 0})
         
         else:
-            # 🚨 살아있는 주식: 종목코드를 쥐고 네이버로 침투하여 현재 가격을 실시간으로 빼옵니다.
+            # 네이버 금융에서 실시간 가격 수집 (캐싱 적용)
             now_p, prev_p, high52, low52 = get_naver_stock_info(row['종목코드'])
             
             # (보험) 네이버 일시적 오류 시 엑셀 원본 단가로 방어
@@ -248,17 +254,35 @@ try:
         cards_df = pd.DataFrame(live_data).sort_values(by='live_yield', ascending=False)
         html_cards = ""
         
+        # 디자인 복원: V32의 Premium Card 레이아웃 적용
+        # 헤더 섹션
+        st.markdown("""
+            <div class="list-header">
+                <div class="header-col">종목명</div>
+                <div class="header-price">현재가</div>
+                <div class="header-diff">당일비(%)</div>
+                <div class="header-yield">수익률</div>
+            </div>
+        """, unsafe_allow_html=True)
+        
         for _, row in cards_df.iterrows():
             is_special = any(x in str(row['종목명']) for x in ["현금", "예수금", "단기", "연금", "펀드"]) or (row['잔고수량'] == 0 and row['매수금액'] > 0)
             
             if is_special:
                 y_str = f"{row['live_yield']:,.2f}%" if row['live_yield'] != 0 else "-"
+                # 모바일 2단 정렬 (특수 자산)
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
                         <div class="card-header-flex">
-                            <div class="card-left"><div class="status-dot dot-gray"></div><span class="stock-name text-gray">{row["종목명"]}</span></div>
-                            <div class="card-right"><div class="card-price text-gray">{row["live_eval"]:,.0f}원</div><div class="card-sub text-gray">수익률: {y_str}</div></div>
+                            <div class="card-left">
+                                <div class="status-dot dot-gray"></div>
+                                <span class="stock-name text-gray">{row["종목명"]}</span>
+                            </div>
+                            <div class="card-right">
+                                <div class="card-price text-gray">{row["live_eval"]:,.0f}원</div>
+                                <div class="card-sub text-gray">수익률: {y_str}</div>
+                            </div>
                         </div>
                     </summary>
                     <div class="card-body"><div class="metric-grid">
@@ -275,12 +299,19 @@ try:
                 ds = f"<span class='{diff_color}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f} ({rate:.2f}%)</span>" if diff != 0 else "-"
                 txt, pos_cl = get_position_text(now_p, row['low'], row['high'])
                 
+                # 모바일 2단 정렬 (일반 주식)
                 html_cards += f"""
                 <details class="premium-card">
                     <summary>
                         <div class="card-header-flex">
-                            <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name">{row["종목명"]}</span></div>
-                            <div class="card-right"><div class="card-price {cl}">{now_p:,.0f}원</div><div class="card-sub {cl}">{ds} &nbsp;│&nbsp; <span style="font-weight:800;">{y_val:.2f}%</span></div></div>
+                            <div class="card-left">
+                                <div class="status-dot {dt}"></div>
+                                <span class="stock-name">{row["종목명"]}</span>
+                            </div>
+                            <div class="card-right">
+                                <div class="card-price {cl}">{now_p:,.0f}원</div>
+                                <div class="card-sub {cl}">{ds} &nbsp;│&nbsp; <span style="font-weight:800;">{y_val:.2f}%</span></div>
+                            </div>
                         </div>
                     </summary>
                     <div class="card-body">
