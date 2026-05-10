@@ -9,26 +9,29 @@ import altair as alt
 
 st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS (오리지널 유지) ---
+# --- CSS (글씨 두께 완화 및 파스텔톤 색상 적용) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #020617; color: #f8fafc; }
+    .stApp { background-color: #020617; color: #e2e8f0; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
-    .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
+    .hq-title { font-size: 1.3rem; color: #93c5fd; font-weight: 700; padding-top: 5px; margin-bottom: 15px; }
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; gap: 8px 0; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
-    .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 2px; }
-    .index-val { font-size: 1.05rem; font-weight: 800; color: #ffffff; }
+    .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
+    .index-val { font-size: 1.05rem; font-weight: 600; color: #f8fafc; }
     .index-diff { font-size: 0.75rem; font-weight: 600; }
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
     .kpi-box { display: flex; flex-direction: column; }
-    .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
-    .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
-    .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
-    .text-blue { color: rgb(70,130,180) !important; }
-    .text-red { color: #ef4444 !important; }
-    .text-gray { color: rgb(108,122,137) !important; }
-    .text-white { color: #ffffff !important; }
+    .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 4px; }
+    .kpi-val { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; }
+    .kpi-delta { font-size: 0.85rem; font-weight: 600; margin-left: 6px; }
+    
+    /* 눈이 편안한 파스텔톤 컬러 적용 */
+    .text-blue { color: #93c5fd !important; } /* Soft Blue */
+    .text-red { color: #fca5a5 !important; } /* Soft Red */
+    .text-gray { color: #94a3b8 !important; }
+    .text-white { color: #f8fafc !important; } /* Off White */
+    
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
@@ -36,18 +39,21 @@ st.markdown("""
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
+    
+    /* 신호등 점은 원색 유지하여 시인성 확보 */
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
-    .stock-name { font-size: 1rem; font-weight: 700; color: #ffffff; }
+    .dot-red { background-color: #ef4444; } .dot-blue { background-color: #3b82f6; } .dot-gray { background-color: rgb(108,122,137); }
+    
+    .stock-name { font-size: 1rem; font-weight: 600; color: #f8fafc; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
-    .val-num { font-size: 1rem; font-weight: 800; }
+    .val-num { font-size: 1rem; font-weight: 600; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 700; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
     .stButton>button:hover { border-color: rgb(70,130,180); color: rgb(70,130,180); }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Data Load (오리지널 유지) ---
+# --- Data Load ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -110,7 +116,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.3 패치] 404 에러 격멸을 위한 4중 우회 통신 모듈 ---
+# --- 🚨 [최후의 일격] 동적 모델 스캔 통신망 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
         pf_summary = []
@@ -133,48 +139,55 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         총 보유 현금(예수금): {cash:,.0f}원
         보유 종목 현황:
         {chr(10).join(pf_summary)}
-        *(참고: TCR확신율은 100점 만점이며, 75점 이상은 강력매수/유지, 40점 이하는 위험/매도 신호입니다)*
         
         [사령관의 특별 지시 및 추가 정보]
         {user_context if user_context else "특이사항 없음"}
         
         아래 양식에 맞춰 정확히 브리핑하십시오:
-        1. 🌍 글로벌 전황 요약 (거시 경제와 유가/금리를 바탕으로 한 시장 방향성)
-        2. 🎯 포트폴리오 정밀 진단 (수익률과 TCR 점수를 비교하여 취약점과 강점 분석)
-        3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
+        1. 🌍 글로벌 전황 요약 (시장 방향성)
+        2. 🎯 포트폴리오 정밀 진단 (강/약점 분석)
+        3. 🔥 최종 작전 지시 (시급한 매도 1종목, 매수/물타기 1종목, 현금 비중 조언)
         """
         
         clean_key = api_key.strip()
         headers = {'Content-Type': 'application/json'}
         data = {"contents": [{"parts": [{"text": prompt}]}]}
         
-        # 404 에러 원천 차단을 위해, 구글이 현재 지원하는 4개의 주소를 연속 타격합니다.
-        models_to_try = [
-            ("v1beta", "gemini-1.5-flash"),
-            ("v1beta", "gemini-pro"),
-            ("v1", "gemini-1.5-flash"),
-            ("v1", "gemini-pro")
-        ]
+        # 1. 1차 시도 (가장 안정적인 기본 루트)
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={clean_key}"
+            res = requests.post(url, headers=headers, json=data, timeout=15)
+            if res.status_code == 200:
+                return res.json()['candidates'][0]['content']['parts'][0]['text']
+        except: pass
         
-        last_err = ""
-        for api_version, model in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent?key={clean_key}"
-            try:
-                res = requests.post(url, headers=headers, json=data, timeout=20)
-                if res.status_code == 200:
-                    result_json = res.json()
-                    if 'candidates' in result_json and len(result_json['candidates']) > 0:
-                        return result_json['candidates'][0]['content']['parts'][0]['text']
+        # 2. 2차 시도 (동적 모델 검색: 서버에 쓸 수 있는 모델 리스트를 요청하여 찾아 들어감)
+        models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={clean_key}"
+        m_res = requests.get(models_url, timeout=10)
+        
+        if m_res.status_code == 200:
+            valid_models = m_res.json().get('models', [])
+            target_model = None
+            # generateContent를 지원하는 가장 강력한 모델을 찾음
+            for m in valid_models:
+                if 'gemini' in m['name'] and 'generateContent' in m.get('supportedGenerationMethods', []):
+                    target_model = m['name']
+                    if 'flash' in target_model: break # flash를 최우선으로 선택
+            
+            if target_model:
+                url_dynamic = f"https://generativelanguage.googleapis.com/v1beta/{target_model}:generateContent?key={clean_key}"
+                res_dyn = requests.post(url_dynamic, headers=headers, json=data, timeout=20)
+                if res_dyn.status_code == 200:
+                    return res_dyn.json()['candidates'][0]['content']['parts'][0]['text']
                 else:
-                    last_err = f"{model} 거절({res.status_code})"
-            except Exception as e:
-                last_err = f"{model} 통신장애"
-                continue
-                
-        return f"🚨 모든 AI 통신망 우회 실패. API 키의 권한을 확인해 주십시오. (최근 에러: {last_err})"
+                    return f"AI 참모 통신 오류: 동적 모델({target_model}) 호출이 거부되었습니다. (코드 {res_dyn.status_code})"
+            else:
+                return "AI 참모 통신 오류: API 키에 사용 가능한 생성형 모델이 할당되지 않았습니다."
+        else:
+            return f"AI 참모 통신 오류: API 키가 유효하지 않거나 검증 서버에 닿을 수 없습니다. (상태코드 {m_res.status_code})"
             
     except Exception as e:
-        return f"AI 참모 내부 시스템 오류 ({e})"
+        return f"AI 참모 통신 완전 두절: 내부 시스템 에러 발생 ({e})"
 
 # --- Main App ---
 try:
@@ -185,8 +198,8 @@ try:
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.3 (AI 통신망 4중 우회 및 색상 최적화판)`")
-            st.markdown("**패치 내역:**\n- 404 Error 방지를 위한 모델 주소 순차 탐색 기능 적용\n- 삼각형 기호(색상)와 텍스트(흰색) 분리 렌더링")
+            st.markdown("**현재 가동:** `V0.5.3 (디자인 최적화 및 지능형 통신판)`")
+            st.markdown("**패치 내역:**\n- 폰트 두께 완화 및 파스텔톤 UI 적용\n- 404 에러 방지용 동적 API 모델 스캔 모듈 탑재")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
@@ -238,21 +251,16 @@ try:
         if indices:
             idx_html = '<div class="index-container">'
             for name in ["KOSPI", "NASDAQ", "S&P 500", "USD/KRW"]:
-                val, diff_str, cl = indices.get(name, ("-", "-", "text-gray"))
-                # [패치] 지수 보드: 기호(색상) + 텍스트(흰색) 분리
-                tri = diff_str[0] if diff_str and diff_str[0] in ['▲', '▼'] else ''
-                rest = diff_str[1:] if tri else diff_str
-                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span style="color:#e2e8f0; margin-left:2px;">{rest}</span></span></div>'
+                val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
+                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
             idx_html += '</div>'
             st.markdown(idx_html, unsafe_allow_html=True)
             
             with st.expander("🌍 거시경제 및 보조 지표 (VIX, 유가, 미 국채)"):
                 macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
                 for name in ["VIX", "WTI (유가)", "US 10Y (미 국채)"]:
-                    val, diff_str, cl = indices.get(name, ("-", "-", "text-gray"))
-                    tri = diff_str[0] if diff_str and diff_str[0] in ['▲', '▼'] else ''
-                    rest = diff_str[1:] if tri else diff_str
-                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span style="color:#e2e8f0; margin-left:2px;">{rest}</span></span></div>'
+                    val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
+                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
                 macro_html += '</div>'
                 st.markdown(macro_html, unsafe_allow_html=True)
 
@@ -262,17 +270,10 @@ try:
         daily_delta = sum((get_safe_val(r,['현재가2','현재가','기준가','매수단가']) - get_safe_val(r,['전일종가2','전일종가'])) * r.get('잔고수량',0) for _,r in display_df.iterrows() if get_safe_val(r,['전일종가2','전일종가']) > 0)
         total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
 
-        # [패치] KPI 그리드: 기호(색상) + 텍스트(흰색) 분리
-        profit_tri = '▲' if total_profit > 0 else '▼' if total_profit < 0 else ''
-        profit_cl = 'text-red' if total_profit > 0 else 'text-blue' if total_profit < 0 else 'text-gray'
-        
-        delta_tri = '▲' if daily_delta > 0 else '▼' if daily_delta < 0 else ''
-        delta_cl = 'text-red' if daily_delta > 0 else 'text-blue' if daily_delta < 0 else 'text-gray'
-
         st.markdown(f"""<div class="kpi-grid">
             <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}원</span></div>
-            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val"><span class="{profit_cl}">{profit_tri}</span> <span style="color:#ffffff;">{abs(total_profit):,.0f}원</span> <span class="kpi-delta" style="color:#94a3b8;">({total_roi:.2f}%)</span></span></div>
-            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val"><span class="{delta_cl}">{delta_tri}</span> <span style="color:#ffffff;">{abs(daily_delta):,.0f}원</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f}원 <span class="kpi-delta">({total_roi:.2f}%)</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{'▲' if daily_delta>0 else '▼' if daily_delta<0 else ''}{abs(daily_delta):,.0f}원</span></div>
             <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
 
@@ -306,25 +307,18 @@ try:
             else:
                 tcr_info = tcr_results.get(code, {"score": 0, "status": "데이터 확인 불가", "color": "text-gray"})
             
-            # [패치] 종목 카드: 기호(색상) + 텍스트(흰색/연회색) 분리
+            cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
             dt = "dot-red" if y_val > 0 else "dot-blue" if y_val < 0 else "dot-gray"
-            
-            diff_tri = '▲' if diff > 0 else '▼' if diff < 0 else ''
-            diff_cl = 'text-red' if diff > 0 else 'text-blue' if diff < 0 else 'text-gray'
-            ds = f"<span class='{diff_cl}'>{diff_tri}</span><span style='color:#e2e8f0; margin-left:2px;'>{abs(diff):,.0f} ({rate:.1f}%)</span>"
-            
-            y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
-            y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
-            ys = f"<span class='{y_cl}'>{y_tri}</span><span style='color:#ffffff; margin-left:2px;'>{abs(y_val)*100 if -1<y_val<1 else abs(y_val)*100:.2f}%</span>"
+            ds = f"<span class='{'text-red' if diff>0 else 'text-blue' if diff<0 else 'text-gray'}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f}({rate:.1f}%)</span>"
             
             html_cards += f"""
             <details class="premium-card">
                 <summary><div class="card-header-flex">
                     <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name">{row['종목명']}</span></div>
                     <div class="card-right">
-                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num text-white">{now_p:,.0f}</span></div>
+                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num {cl}">{now_p:,.0f}</span></div>
                         <div class="val-box"><span class="val-label">당일비</span><span class="val-num">{ds}</span></div>
-                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num">{ys}</span></div>
+                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num {cl}">{y_val*100 if -1<y_val<1 else y_val:.2f}%</span></div>
                     </div>
                 </div></summary>
                 <div class="card-body">
@@ -364,9 +358,9 @@ try:
             if not api_key:
                 st.error("사이드바에 새로 발급받은 Gemini API Key를 입력해 주십시오.")
             else:
-                with st.spinner("🧠 통신망 탐색 및 전술 생성 중... (약 10~20초 소요)"):
+                with st.spinner("🧠 퀀터멘털 데이터 종합 및 전술 생성 중... (약 10초 소요)"):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
-                    if "실패" in ai_report or "오류" in ai_report:
+                    if "오류" in ai_report or "두절" in ai_report:
                         st.error(ai_report)
                     else:
                         st.success("✅ 작전 지시서 수신 완료")
