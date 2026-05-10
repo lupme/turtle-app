@@ -30,15 +30,22 @@ st.markdown("""
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
+    .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
+    .stock-name { font-size: 1rem; font-weight: 700; color: #ffffff; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
+    .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
+    .val-num { font-size: 1rem; font-weight: 800; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
     @media (max-width: 768px) {
         .kpi-grid { grid-template-columns: repeat(2, 1fr); }
         .card-header-flex { flex-direction: column; }
+        .card-left { width: 100%; border-bottom: 1px dashed rgba(108,122,137, 0.4); padding-bottom: 8px; }
+        .card-right { width: 100%; display: flex; flex-direction: row; justify-content: space-between; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 데이터 처리 함수 ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -73,12 +80,11 @@ def get_market_indices():
             sw = BeautifulSoup(res_w.text, 'html.parser')
             em = sw.select_one("p.no_today em")
             if em:
-                val = em.text.strip()
-                diff_area = sw.select_one("p.no_exday")
-                if diff_area:
-                    ems = diff_area.find_all("em")
+                val, d_a = em.text.strip(), sw.select_one("p.no_exday")
+                if d_a:
+                    ems = d_a.find_all("em")
                     dv, rv = ems[0].text.strip(), ems[1].text.strip()
-                    stt = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
+                    stt = d_a.select_one("span.blind").text if d_a.select_one("span.blind") else ""
                     cl = "text-red" if "상승" in stt else "text-blue" if "하락" in stt else "text-gray"
                     indices[code] = (val, f"{'▲' if '상승' in stt else '▼' if '하락' in stt else ''}{dv} ({rv})", cl)
         res_ex = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
@@ -90,11 +96,9 @@ def get_market_indices():
     except: pass
     return indices
 
-# --- [3] 메인 기동 ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    
     st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.2</div>', unsafe_allow_html=True)
     
     with st.sidebar:
@@ -113,7 +117,7 @@ try:
             idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {c}">{v}</span><span class="index-diff {c}">{d}</span></div>'
         idx_html += '</div>'
         st.markdown(idx_html, unsafe_allow_html=True)
-        with st.expander("🌍 거시경제 및 보조 지표 (DOW, VIX, 환율)"):
+        with st.expander("🌍 거시경제 및 보조 지표"):
             macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
             for name in ["DOW", "VIX", "USD/KRW"]:
                 v, d, c = indices.get(name, ("-", "-", "text-gray"))
@@ -124,11 +128,8 @@ try:
     display_df = df[df['계좌유형'] == acc_filter].copy() if acc_filter != "함대 전체" else df.copy()
     total_eval = display_df['평가금액'].sum()
     total_profit = display_df['평가손익'].sum()
-    total_invest = display_df['매수금액'].sum()
-    total_roi = (total_profit / total_invest * 100) if total_invest > 0 else 0
-    daily_delta = 0
-    for _, r in display_df.iterrows():
-        if r.get('전일종가', 0) > 0: daily_delta += (r['현재가2'] - r['전일종가']) * r['잔고수량']
+    total_roi = (total_profit / display_df['매수금액'].sum() * 100) if display_df['매수금액'].sum() > 0 else 0
+    daily_delta = sum((r['현재가2']-r['전일종가'])*r['잔고수량'] for _,r in display_df.iterrows() if r.get('전일종가',0)>0)
     total_cash = display_df[display_df['종목명'].str.contains('현금|예수금', na=False)]['평가금액'].sum()
 
     kpi_html = f"""<div class="kpi-grid">
@@ -147,28 +148,29 @@ try:
 
     html_cards = ""
     for _, row in display_df.iterrows():
-        now_p = row.get('현재가2', row.get('매수단가', 0))
-        y_v = row.get(yc, 0)
+        now_p, y_v = row.get('현재가2', row.get('매수단가', 0)), row.get(yc, 0)
         tcr = quant_analyzer.get_tcr_score(str(row.get('종목코드', '')), now_p)
         cl = "text-red" if y_v > 0 else "text-blue" if y_v < 0 else "text-gray"
         dt = "dot-red" if y_v > 0 else "dot-blue" if y_v < 0 else "dot-gray"
-        
         html_cards += f"""
         <details class="premium-card">
             <summary><div class="card-header-flex">
-                <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name" style="font-weight:700;">{row['종목명']}</span></div>
+                <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name">{row['종목명']}</span></div>
                 <div class="card-right">
                     <div class="val-box"><span class="val-label">현재가</span><span class="val-num {cl}">{now_p:,.0f}</span></div>
                     <div class="val-box"><span class="val-label">수익률</span><span class="val-num {cl}">{y_v*100 if -1<y_v<1 else y_v:.2f}%</span></div>
                 </div>
             </div></summary>
             <div class="card-body" style="background:#020617; padding:15px; border-top:1px solid #1e293b;">
-                <div style="color:rgb(70,130,180); font-weight:700;">평가금액: {row['평가금액']:,.0f}원</div>
-                <div style="color:{tcr['color']};">🔥 확신율: {tcr['score']}% ({tcr['status']})</div>
+                <div class="metric-grid">
+                    <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-value text-blue" style="font-size:1.05rem; font-weight:700;">{row['평가금액']:,.0f}원</div></div>
+                    <div class="metric-box"><div class="metric-label">🔥 확신율 (TCR)</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:{tcr['color']};">{tcr['score']}%</div></div>
+                    <div class="metric-box"><div class="metric-label">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['매수금액']:,.0f}원</div></div>
+                    <div class="metric-box"><div class="metric-label">보유 수량</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['잔고수량']:,.0f}주</div></div>
+                </div>
+                <div style="font-size:0.75rem; color:{tcr['color']}; margin-top:10px;">상태: {tcr['status']}</div>
             </div>
         </details>"""
-        
     st.markdown(html_cards, unsafe_allow_html=True)
     st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
-
-except Exception as e: st.error(f"원복 실패: {e}")
+except Exception as e: st.error(f"기동 실패: {e}")
