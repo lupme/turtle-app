@@ -6,14 +6,14 @@ import json, requests, time, re
 from bs4 import BeautifulSoup
 import quant_analyzer
 
-# --- [1] V49.2 정통 규격 CSS (Steel Blue & Slate Gray) ---
+# --- [1] V49.2 정통 규격 CSS ---
 st.set_page_config(page_title="거북이 함대 기동 본부 V49.2", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
-    .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; letter-spacing: 1px; padding-top: 5px; margin-bottom: 15px; }
+    .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; }
@@ -21,12 +21,11 @@ st.markdown("""
     .kpi-box { display: flex; flex-direction: column; }
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; }
     .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
-    /* 규격 색상 */
     .text-blue { color: rgb(70,130,180) !important; }
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
-    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
+    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; }
     summary { padding: 14px 16px; cursor: pointer; list-style: none; }
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
@@ -38,7 +37,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 데이터 로직 ---
+# --- [2] 데이터 처리 ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -68,7 +67,19 @@ def get_market_indices():
                 bt = box.select_one(".blind").text
                 cl = "text-red" if "상승" in bt else "text-blue" if "하락" in bt else "text-gray"
                 indices[code] = (val, f"{'▲' if '상승' in bt else '▼' if '하락' in bt else ''}{diff} ({rate})", cl)
-        # 환율
+        for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("DOW", "DJI@DJI"), ("VIX", "VIX@VIX")]:
+            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+            sw = BeautifulSoup(res_w.text, 'html.parser')
+            em = sw.select_one("p.no_today em")
+            if em:
+                val = em.text.strip()
+                diff_area = sw.select_one("p.no_exday")
+                if diff_area:
+                    ems = diff_area.find_all("em")
+                    dv, rv = ems[0].text.strip(), ems[1].text.strip()
+                    stt = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
+                    cl = "text-red" if "상승" in stt else "text-blue" if "하락" in stt else "text-gray"
+                    indices[code] = (val, f"{'▲' if '상승' in stt else '▼' if '하락' in stt else ''}{dv} ({rv})", cl)
         res_ex = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         sx = BeautifulSoup(res_ex.text, 'html.parser')
         ex_box = sx.select_one("#exchangeList > li.on > a.head.usd")
@@ -78,7 +89,7 @@ def get_market_indices():
     except: pass
     return indices
 
-# --- [3] 실행 ---
+# --- [3] 메인 기동 ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
@@ -102,8 +113,15 @@ try:
             idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {c}">{v}</span><span class="index-diff {c}">{d}</span></div>'
         idx_html += '</div>'
         st.markdown(idx_html, unsafe_allow_html=True)
+        with st.expander("🌍 거시경제 및 보조 지표 (DOW, VIX, 환율)"):
+            macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
+            for name in ["DOW", "VIX", "USD/KRW"]:
+                v, d, c = indices.get(name, ("-", "-", "text-gray"))
+                macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val {c}">{v}</span><span class="index-diff {c}">{d}</span></div>'
+            macro_html += '</div>'
+            st.markdown(macro_html, unsafe_allow_html=True)
 
-    # 필터 및 정산
+    # 필터 및 데이터 정산
     display_df = df[df['계좌유형'] == acc_filter].copy() if acc_filter != "함대 전체" else df.copy()
     total_eval = display_df['평가금액'].sum()
     total_profit = display_df['평가손익'].sum()
@@ -129,13 +147,14 @@ try:
     elif sort_option == "당일 등락 순": display_df = display_df.sort_values('gap', ascending=False)
     else: display_df = display_df.sort_values('종목명')
 
+    html_cards = ""
     for _, row in display_df.iterrows():
         now_p = row.get('현재가2', row.get('매수단가', 0))
         y_v = row.get(yc, 0)
         tcr = quant_analyzer.get_tcr_score(str(row.get('종목코드', '')), now_p)
         cl = "text-red" if y_v > 0 else "text-blue" if y_v < 0 else "text-gray"
         
-        st.markdown(f"""
+        html_cards += f"""
         <details class="premium-card">
             <summary><div class="card-header-flex">
                 <span class="stock-name" style="font-weight:700;">{row['종목명']}</span>
@@ -149,6 +168,7 @@ try:
             </div>
         </details>""", unsafe_allow_html=True)
         
+    st.markdown(html_cards, unsafe_allow_html=True)
     st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
 
-except Exception as e: st.error(f"기동 실패: {e}")
+except Exception as e: st.error(f"원복 실패: {e}")
