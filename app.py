@@ -6,7 +6,7 @@ import json, requests, time, re
 from bs4 import BeautifulSoup
 import quant_analyzer
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V49.3", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V49.2", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -20,7 +20,7 @@ st.markdown("""
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; }
     .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
     .text-blue { color: rgb(70,130,180) !important; }
-    .text-red { color: #e06666 !important; }
+    .text-red { color: #ef4444 !important; }
     .text-white { color: #ffffff !important; }
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; }
     summary { padding: 14px 16px; cursor: pointer; list-style: none; }
@@ -73,18 +73,10 @@ def get_safe_val(r, cols):
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.2</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
-        
-        with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=True):
-            st.markdown("**현재 가동:** `V49.3 (UI 개선판)`")
-            st.markdown("**직전 안정:** `V49.2_Original`")
-            st.markdown("**패치 내역:**")
-            st.markdown("- 수익률/경고 색상 피로도 완화\n- 사이드바 버전 추적 시스템 도입")
-        
-        st.divider()
         sort_option = st.radio("📊 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
         acc_filter = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
         st.divider()
@@ -114,19 +106,11 @@ try:
     for _, row in display_df.iterrows():
         now_p = get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])
         tcr = quant_analyzer.get_tcr_score(str(row.get('종목코드', '')), now_p)
-        
-        # 수익률 부분에만 색상 적용하여 가독성 개선
-        yield_val = row['temp_yield']
-        yield_color_class = "text-red" if yield_val > 0 else "text-blue" if yield_val < 0 else ""
-        yield_str = f"<span class='{yield_color_class}'>{yield_val*100 if -1<yield_val<1 else yield_val:.2f}%</span>"
-        
         st.markdown(f"""<details class="premium-card"><summary><div class="card-header-flex">
             <span style="font-weight:700;">{row['종목명']}</span>
             <span class="val-num">{now_p:,.0f}원</span></div></summary>
             <div style="padding:15px; background:#020617; border-top:1px solid #1e293b;">
-            <p>평가금액: {row['평가금액']:,.0f}원 / 수익률: {yield_str}</p>
+            <p>평가금액: {row['평가금액']:,.0f}원 / 수익률: {row['temp_yield']*100 if -1<row['temp_yield']<1 else row['temp_yield']:.2f}%</p>
             <p style="color:{tcr['color']};">🔥 확신율: {tcr['score']}% ({tcr['status']})</p></div></details>""", unsafe_allow_html=True)
-            
     st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
-    
 except Exception as e: st.error(f"기동 실패: {e}")
