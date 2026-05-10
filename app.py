@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.9", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.6.0", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS (원본 스타일 유지) ---
 st.markdown("""
@@ -65,7 +65,7 @@ def load_data():
 
 @st.cache_data(ttl=120)
 def get_market_indices():
-    indices = {"KOSPI": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray"), "WTI (유가)": ("-", "-", "text-gray"), "US 10Y (미 국채)": ("-", "-", "text-gray")}
+    indices = {"KOSPI": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray")}
     try:
         res_main = requests.get("https://finance.naver.com/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         soup_main = BeautifulSoup(res_main.text, 'html.parser')
@@ -74,28 +74,10 @@ def get_market_indices():
             val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
             indices["KOSPI"] = (val, f"{'▲' if '상승' in box.select_one('.blind').text else '▼' if '하락' in box.select_one('.blind').text else ''}{diff} ({rate})", "text-red" if "상승" in box.select_one(".blind").text else "text-blue")
         
-        for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("VIX", "VIX@VIX")]:
-            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-            sw = BeautifulSoup(res_w.text, 'html.parser')
-            em = sw.select_one("p.no_today em")
-            if em:
-                stt = sw.select_one("p.no_exday span.blind").text if sw.select_one("p.no_exday span.blind") else ""
-                ems = sw.select_one("p.no_exday").find_all("em")
-                indices[code] = (em.text.strip(), f"{'▲' if '상승' in stt else '▼' if '하락' in stt else ''}{ems[0].text.strip()} ({ems[1].text.strip()})", "text-red" if "상승" in stt else "text-blue")
-        
         res_ex = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         sx = BeautifulSoup(res_ex.text, 'html.parser')
         ex_box = sx.select_one("#exchangeList > li.on > a.head.usd")
         if ex_box: indices["USD/KRW"] = (ex_box.select_one(".value").text, ex_box.select_one(".change").text, "text-red" if "상승" in ex_box.select_one(".blind").text else "text-blue")
-        
-        oil_box = sx.select_one("#oilGoldList > li.on > a.head.oil")
-        if oil_box: indices["WTI (유가)"] = (oil_box.select_one(".value").text, oil_box.select_one(".change").text, "text-red" if "상승" in oil_box.select_one(".blind").text else "text-blue")
-        
-        rate_res = requests.get("https://finance.naver.com/marketindex/worldInterestQuote.naver?marketindexCd=IR_TNX", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-        rs = BeautifulSoup(rate_res.text, 'html.parser')
-        r_box = rs.select_one(".no_today")
-        if r_box and r_box.select_one("em"):
-            indices["US 10Y (미 국채)"] = (r_box.select_one("em").text.strip(), "실시간금리", "text-gray")
     except: pass
     return indices
 
@@ -105,51 +87,58 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.9 패치] 3단계 자동 우회 통신망 (v1beta 기반) ---
+# --- 🚨 [V0.6.0 패치] 5단계 지능형 자동 복구 통신 모듈 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     clean_key = api_key.strip()
     pf_summary = [f"- {r['종목명']}: {r['안전_수익률']*100:.1f}%, TCR {tcr_results.get(str(r['종목코드']),{}).get('score',0)}%" for _, r in portfolio_df.iterrows() if "현금" not in str(r['종목명']) and "예수금" not in str(r['종목명'])]
-    cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
     
-    prompt = f"참모 브리핑 요망.\n[시장]: {indices}\n[현황]: 현금 {cash:,.0f}원 / {chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍글로벌요약, 🎯포트진단, 🔥작전지시(매도/매수 종목명시)"
+    prompt = f"참모 브리핑 요망.\n[시장]: {indices}\n[현황]: {chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍글로벌요약, 🎯포트진단, 🔥작전지시(매도/매수 종목명시)"
     headers = {'Content-Type': 'application/json'}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    # 시도할 모델 리스트 (v1beta가 현재 가장 안정적)
-    models = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
+    # 5단계 모델 탐색 리스트 (v1 정식 경로 사용)
+    model_candidates = [
+        "gemini-1.5-flash", 
+        "gemini-1.5-flash-8b", 
+        "gemini-1.5-pro", 
+        "gemini-2.0-flash-exp", 
+        "gemini-pro"
+    ]
     
-    last_error = ""
-    for model_name in models:
+    errors = []
+    for model_name in model_candidates:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+            # v1 정식 엔드포인트 사용
+            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={clean_key}"
             response = requests.post(url, headers=headers, json=payload, timeout=60)
+            
             if response.status_code == 200:
                 return response.json()['candidates'][0]['content']['parts'][0]['text']
-            last_error = f"[{model_name} 실패]: {response.text}"
+            
+            # v1beta로 재시도 (우회로)
+            url_beta = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+            response_beta = requests.post(url_beta, headers=headers, json=payload, timeout=60)
+            
+            if response_beta.status_code == 200:
+                return response_beta.json()['candidates'][0]['content']['parts'][0]['text']
+                
+            errors.append(f"{model_name}: {response.status_code}")
         except Exception as e:
-            last_error = f"[{model_name} 오류]: {str(e)}"
+            errors.append(f"{model_name} Error: {str(e)}")
             continue
             
-    return f"🚨 모든 통신망 두절:\n{last_error}"
+    return f"🚨 전 모델 통신 두절:\n" + "\n".join(errors)
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.9</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.6.0</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
-        with st.expander("🛠️ VCS", expanded=False):
-            st.markdown("**V0.5.9 가동**\n- 3단계 자동 우회 통신망 적용\n- v1beta 엔드포인트 최적화")
-        st.divider()
-        st.markdown("**🤖 AI 참모 통신**")
         api_key = st.text_input("Gemini API Key 입력 후 Enter", type="password")
-        st.divider()
-        if st.button("🔄 시세 업데이트"):
-            st.cache_data.clear(); st.rerun()
-        st.divider()
-        sort_option = st.radio("📊 정렬", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
+        if st.button("🔄 시세 업데이트"): st.cache_data.clear(); st.rerun()
         selected_type = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
         
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
@@ -162,14 +151,6 @@ try:
     tab_main, tab_analysis, tab_ai = st.tabs(["🚀 관제실", "🔬 분석실", "🤖 AI 브리핑"])
 
     with tab_main:
-        if indices:
-            idx_html = '<div class="index-container">'
-            for name in ["KOSPI", "NASDAQ", "S&P 500", "USD/KRW"]:
-                val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
-                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
-            idx_html += '</div>'
-            st.markdown(idx_html, unsafe_allow_html=True)
-            
         total_eval = display_df['평가금액'].sum()
         total_profit = display_df['평가손익'].sum()
         st.markdown(f"""<div class="kpi-grid">
@@ -177,11 +158,7 @@ try:
             <div class="kpi-box"><span class="kpi-label">누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
 
-        is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
-        df_stock, df_cash = display_df[~is_cash].copy(), display_df[is_cash].copy()
-        df_stock = df_stock.sort_values(by='안전_수익률' if sort_option=="수익률 순" else '종목명', ascending=(sort_option=="수익률 순"))
-        
-        for _, row in pd.concat([df_stock, df_cash]).iterrows():
+        for _, row in display_df.sort_values(by='안전_수익률', ascending=False).iterrows():
             now_p = get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])
             tcr = tcr_results.get(str(row.get('종목코드', '')), {"score": 0, "status": "부족", "color": "text-gray"})
             st.markdown(f"""<details class="premium-card"><summary><div class="card-header-flex">
@@ -190,7 +167,7 @@ try:
                 수익률: {row['안전_수익률']*100:.2f}% / TCR: <span style='color:{tcr['color']}'>{tcr['score']}%</span></div></details>""", unsafe_allow_html=True)
 
     with tab_analysis:
-        plot_df = df_stock.copy()
+        plot_df = display_df[~display_df['종목명'].astype(str).str.contains('현금|예수금')].copy()
         plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
         plot_df['표시수익률'] = plot_df['안전_수익률'] * 100
         chart = alt.Chart(plot_df).mark_circle(size=100).encode(
@@ -205,7 +182,7 @@ try:
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not api_key: st.error("API Key 입력 필수!")
             else:
-                with st.spinner("🧠 우회 통신망 가동 중..."):
+                with st.spinner("🧠 5단계 모델 자동 스캔 및 통신 중..."):
                     report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
                     st.markdown(f"<div style='background:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b;'>{report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
