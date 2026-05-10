@@ -14,7 +14,7 @@ st.markdown("""
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; }
-    .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
+    .index-item { display: flex; flex-direction: column; align-items: center; width: 14%; margin-bottom: 5px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
     .kpi-box { display: flex; flex-direction: column; }
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; }
@@ -25,7 +25,7 @@ st.markdown("""
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; }
     summary { padding: 14px 16px; cursor: pointer; list-style: none; }
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
-    @media (max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .card-header-flex { flex-direction: column; } }
+    @media (max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .card-header-flex { flex-direction: column; } .index-item { width: 30%; } }
     </style>
     """, unsafe_allow_html=True)
 
@@ -75,11 +75,28 @@ try:
     indices = get_market_indices()
     st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.2</div>', unsafe_allow_html=True)
     
+    # 누락되었던 주요 지수 출력 UI 복원
+    idx_html = '<div class="index-container">'
+    for k, v in indices.items():
+        idx_html += f'<div class="index-item"><span class="kpi-label" style="margin-bottom:2px;">{k}</span><span class="{v[2]}" style="font-size:1.1rem; font-weight:800;">{v[0]}</span><span style="font-size:0.75rem; color:#94a3b8;">{v[1]}</span></div>'
+    idx_html += '</div>'
+    st.markdown(idx_html, unsafe_allow_html=True)
+    
     with st.sidebar:
         st.header("🎯 전략 사령부")
+        
+        with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=True):
+            st.markdown("**현재 가동:** `V49.2 (정통 베이스라인)`")
+            st.markdown("**직전 안정:** `-`")
+            st.markdown("**패치 내역:**")
+            st.markdown("- 초기 이주 원본 코드 100% 롤백\n- 누락된 주요 거시 경제 지표 UI 복원")
+            
+        st.divider()
         sort_option = st.radio("📊 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
         acc_filter = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
         st.divider()
+        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
+        
         if st.button("🚀 데이터 동기화 (Sync)"):
             st.cache_data.clear()
             st.rerun()
@@ -112,5 +129,7 @@ try:
             <div style="padding:15px; background:#020617; border-top:1px solid #1e293b;">
             <p>평가금액: {row['평가금액']:,.0f}원 / 수익률: {row['temp_yield']*100 if -1<row['temp_yield']<1 else row['temp_yield']:.2f}%</p>
             <p style="color:{tcr['color']};">🔥 확신율: {tcr['score']}% ({tcr['status']})</p></div></details>""", unsafe_allow_html=True)
+            
     st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
+    
 except Exception as e: st.error(f"기동 실패: {e}")
