@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.4", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 st.markdown("""
@@ -110,9 +110,12 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.3 패치] API 모델명을 최신 주소로 수정 ---
+# --- 🚨 [V0.5.4 패치] API 통신 추적 및 자동 공백 제거 모듈 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
+        # 사령관님이 복사하면서 실수로 들어간 띄어쓰기나 줄바꿈을 강제로 모두 지워버림
+        clean_key = api_key.strip()
+        
         pf_summary = []
         for _, r in portfolio_df.iterrows():
             if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
@@ -133,7 +136,6 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         총 보유 현금(예수금): {cash:,.0f}원
         보유 종목 현황:
         {chr(10).join(pf_summary)}
-        *(참고: TCR확신율은 100점 만점이며, 75점 이상은 강력매수/유지, 40점 이하는 위험/매도 신호입니다)*
         
         [사령관의 특별 지시 및 추가 정보]
         {user_context if user_context else "특이사항 없음"}
@@ -144,14 +146,17 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
         """
         
-        # URL의 모델 이름을 gemini-1.5-flash-latest 로 수정
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+        # 모델명 복원 및 클린 키 삽입
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={clean_key}"
         headers = {'Content-Type': 'application/json'}
         data = {"contents": [{"parts": [{"text": prompt}]}]}
         
         response = requests.post(url, headers=headers, json=data, timeout=15)
-        response.raise_for_status()
         
+        # 구글 서버에서 거절했을 경우, 거절 사유를 그대로 리턴
+        if response.status_code != 200:
+            return f"⚠️ 구글 서버 거절 사유 (에러 추적):\n{response.text}"
+            
         result_json = response.json()
         if 'candidates' in result_json and len(result_json['candidates']) > 0:
             return result_json['candidates'][0]['content']['parts'][0]['text']
@@ -159,23 +164,24 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
             return "AI 참모 통신 오류: 응답을 해석할 수 없습니다."
             
     except Exception as e:
-        return f"AI 참모 통신 실패: API 키가 잘못되었거나 오류가 발생했습니다. ({e})"
+        return f"🚨 시스템 에러 추적: {str(e)}"
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.4</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.3 (AI 통신망 복구판)`")
-            st.markdown("**패치 내역:**\n- 404 Client Error 방지를 위해 Gemini 모델 주소를 최신 규격(-latest)으로 수정")
+            st.markdown("**현재 가동:** `V0.5.4 (통신 추적판)`")
+            st.markdown("**패치 내역:**\n- API 키 공백 자동 제거 필터 적용\n- 에러 발생 시 구글 서버의 원본 거절 사유 출력 기능 추가")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
-        api_key = st.text_input("Gemini API Key 입력 (1회용)", type="password", help="구글 AI 스튜디오에서 무료로 발급받은 키를 입력하세요.")
+        st.markdown("<p style='font-size:0.75rem; color:#94a3b8;'>※ 키 입력 후 반드시 엔터(Enter)를 쳐주세요!</p>", unsafe_allow_html=True)
+        api_key = st.text_input("Gemini API Key 입력 (1회용)", type="password", help="키를 넣고 Enter를 누르세요.")
         st.divider()
         
         if st.button("🔄 실시간 시세 수동 업데이트"):
@@ -328,11 +334,14 @@ try:
         
         if st.button("🔥 AI 퀀터멘털 브리핑 생성", use_container_width=True):
             if not api_key:
-                st.error("사이드바에 새로 발급받은 Gemini API Key를 입력해 주십시오.")
+                st.error("사이드바에 새로 발급받은 Gemini API Key를 입력 후 Enter를 쳐주십시오.")
             else:
                 with st.spinner("🧠 퀀터멘털 데이터 종합 및 전술 생성 중... (약 10초 소요)"):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
-                    st.success("✅ 작전 지시서 수신 완료")
-                    st.markdown("""<div style="background-color:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b; color:#f8fafc; font-size:1rem; line-height:1.6;">""" + ai_report.replace('\n', '<br>') + """</div>""", unsafe_allow_html=True)
+                    if "거절 사유" in ai_report or "에러 추적" in ai_report:
+                        st.error(ai_report)
+                    else:
+                        st.success("✅ 작전 지시서 수신 완료")
+                        st.markdown("""<div style="background-color:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b; color:#f8fafc; font-size:1rem; line-height:1.6;">""" + ai_report.replace('\n', '<br>') + """</div>""", unsafe_allow_html=True)
 
 except Exception as e: st.error(f"함대 기동 중지: {e}")
