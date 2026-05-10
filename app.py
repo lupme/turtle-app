@@ -7,9 +7,9 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS ---
+# --- CSS (오리지널 유지) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -47,7 +47,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Data Load ---
+# --- Data Load (오리지널 유지) ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -110,7 +110,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.3.1 패치] 통신 엔진 주소 정밀 수정 ---
+# --- 🚨 [V0.5.3 패치] 404 에러 격멸을 위한 4중 우회 통신 모듈 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
         pf_summary = []
@@ -145,41 +145,48 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         """
         
         clean_key = api_key.strip()
-        # 오류를 발생시킨 -latest를 제거하고 가장 강력한 v1 정식 주소로 교체 (타임아웃 30초 연장)
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={clean_key}"
         headers = {'Content-Type': 'application/json'}
         data = {"contents": [{"parts": [{"text": prompt}]}]}
         
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        # 404 에러 원천 차단을 위해, 구글이 현재 지원하는 4개의 주소를 연속 타격합니다.
+        models_to_try = [
+            ("v1beta", "gemini-1.5-flash"),
+            ("v1beta", "gemini-pro"),
+            ("v1", "gemini-1.5-flash"),
+            ("v1", "gemini-pro")
+        ]
         
-        if response.status_code != 200:
-            # 1차 실패 시 v1beta로 2차 우회
-            url_beta = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={clean_key}"
-            response = requests.post(url_beta, headers=headers, json=data, timeout=30)
-            
-        response.raise_for_status()
-        
-        result_json = response.json()
-        if 'candidates' in result_json and len(result_json['candidates']) > 0:
-            return result_json['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return "AI 참모 통신 오류: 응답을 해석할 수 없습니다."
+        last_err = ""
+        for api_version, model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent?key={clean_key}"
+            try:
+                res = requests.post(url, headers=headers, json=data, timeout=20)
+                if res.status_code == 200:
+                    result_json = res.json()
+                    if 'candidates' in result_json and len(result_json['candidates']) > 0:
+                        return result_json['candidates'][0]['content']['parts'][0]['text']
+                else:
+                    last_err = f"{model} 거절({res.status_code})"
+            except Exception as e:
+                last_err = f"{model} 통신장애"
+                continue
+                
+        return f"🚨 모든 AI 통신망 우회 실패. API 키의 권한을 확인해 주십시오. (최근 에러: {last_err})"
             
     except Exception as e:
-        err_msg = response.text if 'response' in locals() and hasattr(response, 'text') else str(e)
-        return f"AI 참모 통신 실패: 구글 서버가 응답을 거부했습니다. ({err_msg})"
+        return f"AI 참모 내부 시스템 오류 ({e})"
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3.1</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.3.1 (AI 통신망 복구 및 시인성 개선판)`")
-            st.markdown("**패치 내역:**\n- 404 Client Error 원천 차단 (정식 v1 주소 적용)\n- 증감 기호 수치 텍스트 화이트 통일")
+            st.markdown("**현재 가동:** `V0.5.3 (AI 통신망 4중 우회 및 색상 최적화판)`")
+            st.markdown("**패치 내역:**\n- 404 Error 방지를 위한 모델 주소 순차 탐색 기능 적용\n- 삼각형 기호(색상)와 텍스트(흰색) 분리 렌더링")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
@@ -232,10 +239,10 @@ try:
             idx_html = '<div class="index-container">'
             for name in ["KOSPI", "NASDAQ", "S&P 500", "USD/KRW"]:
                 val, diff_str, cl = indices.get(name, ("-", "-", "text-gray"))
-                # [수정] 기호와 수치 분리
+                # [패치] 지수 보드: 기호(색상) + 텍스트(흰색) 분리
                 tri = diff_str[0] if diff_str and diff_str[0] in ['▲', '▼'] else ''
                 rest = diff_str[1:] if tri else diff_str
-                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val text-white">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span class="text-white">{rest}</span></span></div>'
+                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span style="color:#e2e8f0; margin-left:2px;">{rest}</span></span></div>'
             idx_html += '</div>'
             st.markdown(idx_html, unsafe_allow_html=True)
             
@@ -245,7 +252,7 @@ try:
                     val, diff_str, cl = indices.get(name, ("-", "-", "text-gray"))
                     tri = diff_str[0] if diff_str and diff_str[0] in ['▲', '▼'] else ''
                     rest = diff_str[1:] if tri else diff_str
-                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val text-white">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span class="text-white">{rest}</span></span></div>'
+                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span style="color:#e2e8f0; margin-left:2px;">{rest}</span></span></div>'
                 macro_html += '</div>'
                 st.markdown(macro_html, unsafe_allow_html=True)
 
@@ -255,18 +262,18 @@ try:
         daily_delta = sum((get_safe_val(r,['현재가2','현재가','기준가','매수단가']) - get_safe_val(r,['전일종가2','전일종가'])) * r.get('잔고수량',0) for _,r in display_df.iterrows() if get_safe_val(r,['전일종가2','전일종가']) > 0)
         total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
 
-        # [수정] KPI 박스 기호 색상 분리
-        tri_profit = '▲' if total_profit > 0 else '▼' if total_profit < 0 else ''
-        col_profit = 'text-red' if total_profit > 0 else 'text-blue' if total_profit < 0 else 'text-gray'
+        # [패치] KPI 그리드: 기호(색상) + 텍스트(흰색) 분리
+        profit_tri = '▲' if total_profit > 0 else '▼' if total_profit < 0 else ''
+        profit_cl = 'text-red' if total_profit > 0 else 'text-blue' if total_profit < 0 else 'text-gray'
         
-        tri_delta = '▲' if daily_delta > 0 else '▼' if daily_delta < 0 else ''
-        col_delta = 'text-red' if daily_delta > 0 else 'text-blue' if daily_delta < 0 else 'text-gray'
+        delta_tri = '▲' if daily_delta > 0 else '▼' if daily_delta < 0 else ''
+        delta_cl = 'text-red' if daily_delta > 0 else 'text-blue' if daily_delta < 0 else 'text-gray'
 
         st.markdown(f"""<div class="kpi-grid">
             <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}원</span></div>
-            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val"><span class="{col_profit}">{tri_profit}</span><span class="text-white">{abs(total_profit):,.0f}원 <span class="kpi-delta">({total_roi:.2f}%)</span></span></span></div>
-            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val"><span class="{col_delta}">{tri_delta}</span><span class="text-white">{abs(daily_delta):,.0f}원</span></span></div>
-            <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-white">{total_cash:,.0f}원</span></div>
+            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val"><span class="{profit_cl}">{profit_tri}</span> <span style="color:#ffffff;">{abs(total_profit):,.0f}원</span> <span class="kpi-delta" style="color:#94a3b8;">({total_roi:.2f}%)</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val"><span class="{delta_cl}">{delta_tri}</span> <span style="color:#ffffff;">{abs(daily_delta):,.0f}원</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
 
         is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
@@ -299,15 +306,16 @@ try:
             else:
                 tcr_info = tcr_results.get(code, {"score": 0, "status": "데이터 확인 불가", "color": "text-gray"})
             
-            # [수정] 카드 내부 기호와 텍스트 색상 분리
-            cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
+            # [패치] 종목 카드: 기호(색상) + 텍스트(흰색/연회색) 분리
             dt = "dot-red" if y_val > 0 else "dot-blue" if y_val < 0 else "dot-gray"
             
-            tri_diff = '▲' if diff > 0 else '▼' if diff < 0 else ''
-            cl_diff = "text-red" if diff > 0 else "text-blue" if diff < 0 else "text-gray"
+            diff_tri = '▲' if diff > 0 else '▼' if diff < 0 else ''
+            diff_cl = 'text-red' if diff > 0 else 'text-blue' if diff < 0 else 'text-gray'
+            ds = f"<span class='{diff_cl}'>{diff_tri}</span><span style='color:#e2e8f0; margin-left:2px;'>{abs(diff):,.0f} ({rate:.1f}%)</span>"
             
-            ds = f"<span class='{cl_diff}'>{tri_diff}</span><span class='text-white'>{abs(diff):,.0f}({rate:.1f}%)</span>"
-            ys = f"<span class='{cl}'>{'▲' if y_val > 0 else '▼' if y_val < 0 else ''}</span><span class='text-white'>{abs(y_val)*100:.2f}%</span>"
+            y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
+            y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
+            ys = f"<span class='{y_cl}'>{y_tri}</span><span style='color:#ffffff; margin-left:2px;'>{abs(y_val)*100 if -1<y_val<1 else abs(y_val)*100:.2f}%</span>"
             
             html_cards += f"""
             <details class="premium-card">
@@ -356,9 +364,9 @@ try:
             if not api_key:
                 st.error("사이드바에 새로 발급받은 Gemini API Key를 입력해 주십시오.")
             else:
-                with st.spinner("🧠 퀀터멘털 데이터 종합 및 전술 생성 중... (약 10~30초 소요)"):
+                with st.spinner("🧠 통신망 탐색 및 전술 생성 중... (약 10~20초 소요)"):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
-                    if "통신 실패" in ai_report or "오류" in ai_report:
+                    if "실패" in ai_report or "오류" in ai_report:
                         st.error(ai_report)
                     else:
                         st.success("✅ 작전 지시서 수신 완료")
