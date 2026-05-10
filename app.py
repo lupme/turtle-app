@@ -5,9 +5,9 @@ from google.oauth2.service_account import Credentials
 import json, requests, time
 from bs4 import BeautifulSoup
 import quant_analyzer
-import plotly.express as px  # 🚨 새로 추가된 차트 라이브러리
+import altair as alt # 🚨 Plotly 대신 스트림릿 기본 내장 차트 모듈 사용
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.4", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.4.1", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -106,15 +106,15 @@ def get_safe_val(r, cols):
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.4</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.4.1</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.4 (Deep Analysis 모듈 탑재)`")
+            st.markdown("**현재 가동:** `V0.4.1 (무설치 분석모듈)`")
             st.markdown("**직전 안정:** `V0.3 (병렬 엔진)`")
             st.markdown("**패치 내역:**")
-            st.markdown("- 분석 전용 탭 분리\n- 2D 전술 사분면 (수익률 vs 확신율)\n- 실시간 가중치 시뮬레이터 구축")
+            st.markdown("- 분석 탭 추가 (수익률 vs 확신율)\n- 가중치 시뮬레이터 구축\n- 스트림릿 클라우드 에러 방지를 위한 내장 차트(Altair) 적용")
         st.divider()
         if st.button("🔄 실시간 시세 수동 업데이트"):
             st.cache_data.clear(); st.rerun()
@@ -127,14 +127,12 @@ try:
     display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
     display_df['당일등락율'] = display_df.apply(lambda r: (((get_safe_val(r, ['현재가2', '현재가', '기준가', '매수단가']) - get_safe_val(r, ['전일종가2', '전일종가'])) / get_safe_val(r, ['전일종가2', '전일종가'])) * 100) if get_safe_val(r, ['전일종가2', '전일종가']) > 0 else 0, axis=1)
 
-    # 기본 가중치로 사전 연산
     default_weights = {"flow": 0.4, "trend": 0.4, "vcp": 0.2}
     stock_fetch_list = [(str(row.get('종목코드', '')), get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])) for _, row in display_df.iterrows() if str(row.get('종목코드', '')) and "현금" not in str(row['종목명']) and "예수금" not in str(row['종목명'])]
     
     with st.spinner("🚀 T-Q 엔진 가동 중..."):
         tcr_results = quant_analyzer.get_tcr_scores_batch(stock_fetch_list, default_weights)
 
-    # 🚨 [V0.4] 탭 분리: 메인 관제소 vs 심층 분석실
     tab_main, tab_analysis = st.tabs(["🚀 기동 관제실 (Dashboard)", "🔬 심층 분석실 (Deep Analysis)"])
 
     with tab_main:
@@ -215,26 +213,32 @@ try:
 
     with tab_analysis:
         st.subheader("📊 1. 전술 사분면 (수익률 vs 확신율)")
-        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>• 우측 상단(수익↑, 확신↑): 보유 유지<br>• 좌측 상단(수익↑, 확신↓): <b>차익 실현(매도) 고려</b><br>• 우측 하단(수익↓, 확신↑): <b>비중 확대(물타기) 고려</b><br>• 좌측 하단(수익↓, 확신↓): <b>손절 및 교체 대상</b></p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>• 마우스를 점 위에 올리면 종목명과 상세 데이터가 보입니다.<br>• 우측 하단(수익↓, 확신↑): <b>비중 확대(물타기) 고려 1순위</b></p>", unsafe_allow_html=True)
         
-        # 산점도 데이터 준비
         plot_df = df_stock.copy()
         plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
         plot_df['표시수익률'] = plot_df['안전_수익률'] * 100
         
-        fig = px.scatter(plot_df, x="TCR점수", y="표시수익률", text="종목명", size="평가금액", color="TCR점수", color_continuous_scale="RdBu", range_x=[0, 100])
-        fig.update_traces(textposition='top center')
-        fig.update_layout(plot_bgcolor='#020617', paper_bgcolor='#020617', font_color='#f8fafc',
-                          xaxis=dict(gridcolor='#1e293b', title="TCR 확신율 (0~100)"), 
-                          yaxis=dict(gridcolor='#1e293b', title="현재 수익률 (%)"))
-        # 십자선 (기준선) 추가
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-        fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
-        st.plotly_chart(fig, use_container_width=True)
+        # 🚨 [V0.4.1 패치] 스트림릿 내장 Altair 차트로 에러 원천 차단
+        chart = alt.Chart(plot_df).mark_circle().encode(
+            x=alt.X('TCR점수:Q', scale=alt.Scale(domain=[0, 100]), title='TCR 확신율 (0~100)', axis=alt.Axis(gridColor='#1e293b', titleColor='#94a3b8', labelColor='#94a3b8')),
+            y=alt.Y('표시수익률:Q', title='현재 수익률 (%)', axis=alt.Axis(gridColor='#1e293b', titleColor='#94a3b8', labelColor='#94a3b8')),
+            size=alt.Size('평가금액:Q', legend=None, scale=alt.Scale(range=[50, 500])),
+            color=alt.Color('TCR점수:Q', scale=alt.Scale(scheme='redblue', domain=[0, 100]), legend=None),
+            tooltip=['종목명', 'TCR점수', '표시수익률', '평가금액']
+        ).properties(
+            height=450,
+            background='#020617'
+        ).interactive()
+
+        hline = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', strokeDash=[5, 5]).encode(y='y:Q')
+        vline = alt.Chart(pd.DataFrame({'x': [50]})).mark_rule(color='gray', strokeDash=[5, 5]).encode(x='x:Q')
+
+        st.altair_chart(chart + hline + vline, use_container_width=True)
 
         st.divider()
 
-        st.subheader("🎛️ 2. 워룸 시뮬레이터 (가중치 What-If)")
+        st.subheader("🎛️ 2. 워룸 시뮬레이터 (가중치 실시간 조절)")
         st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>현재 시장 상황에 맞춰 가중치를 변경하면, 포트폴리오 내 최고의 타격 목표(Top 5)가 실시간으로 재계산됩니다.</p>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns(3)
@@ -242,7 +246,6 @@ try:
         with col2: w_trend = st.slider("추세 가중치", 0.0, 1.0, 0.4, 0.1)
         with col3: w_vcp = st.slider("VCP 가중치", 0.0, 1.0, 0.2, 0.1)
         
-        # 합계 검증
         if round(w_flow + w_trend + w_vcp, 1) != 1.0:
             st.warning(f"⚠️ 가중치 합계가 1.0이 아닙니다. (현재: {w_flow + w_trend + w_vcp:.1f})")
         else:
