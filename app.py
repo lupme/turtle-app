@@ -13,7 +13,7 @@ st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
-    .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
+    .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; letter-spacing: 1px; padding-top: 5px; margin-bottom: 15px; }
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; }
@@ -25,11 +25,12 @@ st.markdown("""
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
-    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; }
+    details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     summary { padding: 14px 16px; cursor: pointer; list-style: none; }
     .card-header-flex { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
+    .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     @media (max-width: 768px) {
         .kpi-grid { grid-template-columns: repeat(2, 1fr); }
         .card-header-flex { flex-direction: column; }
@@ -37,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 데이터 처리 ---
+# --- [2] 데이터 처리 함수 ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -105,7 +106,6 @@ try:
             st.cache_data.clear()
             st.rerun()
 
-    # 지수 렌더링
     if indices:
         idx_html = '<div class="index-container">'
         for name in ["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"]:
@@ -121,26 +121,24 @@ try:
             macro_html += '</div>'
             st.markdown(macro_html, unsafe_allow_html=True)
 
-    # 필터 및 데이터 정산
     display_df = df[df['계좌유형'] == acc_filter].copy() if acc_filter != "함대 전체" else df.copy()
     total_eval = display_df['평가금액'].sum()
     total_profit = display_df['평가손익'].sum()
-    total_roi = (total_profit / display_df['매수금액'].sum() * 100) if display_df['매수금액'].sum() > 0 else 0
+    total_invest = display_df['매수금액'].sum()
+    total_roi = (total_profit / total_invest * 100) if total_invest > 0 else 0
     daily_delta = 0
     for _, r in display_df.iterrows():
         if r.get('전일종가', 0) > 0: daily_delta += (r['현재가2'] - r['전일종가']) * r['잔고수량']
     total_cash = display_df[display_df['종목명'].str.contains('현금|예수금', na=False)]['평가금액'].sum()
 
-    # KPI 렌더링 (사령관님 지정 색상 엄수)
     kpi_html = f"""<div class="kpi-grid">
         <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}원</span></div>
         <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f}원 ({total_roi:.2f}%)</span></div>
-        <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{daily_delta:,.0f}원</span></div>
+        <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{'▲' if daily_delta>0 else '▼' if daily_delta<0 else ''}{abs(daily_delta):,.0f}원</span></div>
         <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}원</span></div>
     </div>"""
     st.markdown(kpi_html, unsafe_allow_html=True)
 
-    # 정렬 및 카드 출력
     yc = '수익률2' if '수익률2' in display_df.columns else '수익률'
     display_df['gap'] = display_df.apply(lambda r: ((r['현재가2']-r['전일종가'])/r['전일종가']*100) if r.get('전일종가',0)>0 else 0, axis=1)
     if sort_option == "수익률 순": display_df = display_df.sort_values(yc, ascending=False)
@@ -153,20 +151,22 @@ try:
         y_v = row.get(yc, 0)
         tcr = quant_analyzer.get_tcr_score(str(row.get('종목코드', '')), now_p)
         cl = "text-red" if y_v > 0 else "text-blue" if y_v < 0 else "text-gray"
+        dt = "dot-red" if y_v > 0 else "dot-blue" if y_v < 0 else "dot-gray"
         
         html_cards += f"""
         <details class="premium-card">
             <summary><div class="card-header-flex">
-                <span class="stock-name" style="font-weight:700;">{row['종목명']}</span>
+                <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name" style="font-weight:700;">{row['종목명']}</span></div>
                 <div class="card-right">
-                    <span class="val-num {cl}">{now_p:,.0f}원 ({y_v*100:.2f}%)</span>
+                    <div class="val-box"><span class="val-label">현재가</span><span class="val-num {cl}">{now_p:,.0f}</span></div>
+                    <div class="val-box"><span class="val-label">수익률</span><span class="val-num {cl}">{y_v*100 if -1<y_v<1 else y_v:.2f}%</span></div>
                 </div>
             </div></summary>
             <div class="card-body" style="background:#020617; padding:15px; border-top:1px solid #1e293b;">
                 <div style="color:rgb(70,130,180); font-weight:700;">평가금액: {row['평가금액']:,.0f}원</div>
                 <div style="color:{tcr['color']};">🔥 확신율: {tcr['score']}% ({tcr['status']})</div>
             </div>
-        </details>""", unsafe_allow_html=True)
+        </details>"""
         
     st.markdown(html_cards, unsafe_allow_html=True)
     st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
