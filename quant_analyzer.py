@@ -3,12 +3,12 @@ import requests
 from bs4 import BeautifulSoup
 import streamlit as st
 import re
+import concurrent.futures
 
 @st.cache_data(ttl=300)
 def fetch_quant_data(stock_code: str, current_price: int):
     if not stock_code or current_price <= 0:
         return 50.0, 50.0, 50.0
-        
     clean_code = str(stock_code).zfill(6)
     try:
         url = f"https://finance.naver.com/item/main.naver?code={clean_code}"
@@ -26,7 +26,7 @@ def fetch_quant_data(stock_code: str, current_price: int):
                         high52 = int(re.sub(r'[^0-9]', '', ems[0].text))
                         low52 = int(re.sub(r'[^0-9]', '', ems[1].text))
                     break
-        
+                    
         frgn_rate = 0.0
         th_tags = soup.find_all('th')
         for th in th_tags:
@@ -58,7 +58,24 @@ def get_tcr_score(stock_code: str, current_price: int) -> dict:
 
     return {"score": tcr_score, "status": stt, "color": col}
 
+# 🚨 [V0.3 패치] 병렬 처리(Multi-threading) 일괄 수집 엔진
+def get_tcr_scores_batch(stock_list: list) -> dict:
+    results = {}
+    # IP 차단 방지를 위해 최대 동시 접속(worker)을 5개로 엄격히 제한
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_code = {
+            executor.submit(get_tcr_score, code, price): code
+            for code, price in stock_list if code
+        }
+        for future in concurrent.futures.as_completed(future_to_code):
+            code = future_to_code[future]
+            try:
+                results[code] = future.result()
+            except Exception:
+                results[code] = {"score": 0, "status": "연결 지연", "color": "text-gray"}
+    return results
+
 def get_analysis_legend() -> str:
     return """<div style="margin-top: 10px; padding: 15px; border-top: 1px solid #1e293b; border-radius: 8px;">
-        <p style="color: #6C7A89; font-size: 0.8rem; font-weight: 700; margin-bottom: 5px;">[M01: T-Q Engine V49.1]</p>
+        <p style="color: #6C7A89; font-size: 0.8rem; font-weight: 700; margin-bottom: 5px;">[M01: T-Q Engine V0.3 - Parallel Core]</p>
         <p style="color: #6C7A89; font-size: 0.75rem; margin: 0;">* 외국인수급(40%) + 52주추세(40%) + VCP방어력(20%)</p></div>"""
