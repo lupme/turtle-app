@@ -7,9 +7,9 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.8", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.9", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS (생략 없이 원본 유지) ---
+# --- CSS (원본 스타일 유지) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -105,51 +105,43 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.8 패치] 타임아웃 60초 확장 및 정식 통신망 복구 ---
+# --- 🚨 [V0.5.9 패치] 3단계 자동 우회 통신망 (v1beta 기반) ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
-    try:
-        clean_key = api_key.strip()
-        pf_summary = []
-        for _, r in portfolio_df.iterrows():
-            if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
-            code = str(r['종목코드'])
-            tcr = tcr_results.get(code, {}).get('score', 0)
-            pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
-        
-        cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
-        
-        prompt = f"""당신은 월스트리트 최고의 투자 참모입니다. 말투는 군대식으로 명확하게!
-        [시장지표]: {indices}
-        [함대현황]: 현금 {cash:,.0f}원 / 종목: {chr(10).join(pf_summary)}
-        [특별지시]: {user_context if user_context else "없음"}
-        양식: 🌍글로벌요약, 🎯포트폴리오진단, 🔥최종작전지시(매도/매수/비중조절 사유명확히)"""
-        
-        headers = {'Content-Type': 'application/json'}
-        data = {"contents": [{"parts": [{"text": prompt}]}]}
-        
-        # 정식 V1 주소로 타격하되, 타임아웃을 60초로 대폭 늘림
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={clean_key}"
-        response = requests.post(url, headers=headers, json=data, timeout=60)
-        
-        if response.status_code == 200:
-            result_json = response.json()
-            return result_json['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"⚠️ 통신 실패 (상태코드 {response.status_code}): {response.text}"
-            
-    except Exception as e:
-        return f"🚨 시스템 에러: {str(e)}"
+    clean_key = api_key.strip()
+    pf_summary = [f"- {r['종목명']}: {r['안전_수익률']*100:.1f}%, TCR {tcr_results.get(str(r['종목코드']),{}).get('score',0)}%" for _, r in portfolio_df.iterrows() if "현금" not in str(r['종목명']) and "예수금" not in str(r['종목명'])]
+    cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
+    
+    prompt = f"참모 브리핑 요망.\n[시장]: {indices}\n[현황]: 현금 {cash:,.0f}원 / {chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍글로벌요약, 🎯포트진단, 🔥작전지시(매도/매수 종목명시)"
+    headers = {'Content-Type': 'application/json'}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-# --- Main App (Stable V0.5.8) ---
+    # 시도할 모델 리스트 (v1beta가 현재 가장 안정적)
+    models = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
+    
+    last_error = ""
+    for model_name in models:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            if response.status_code == 200:
+                return response.json()['candidates'][0]['content']['parts'][0]['text']
+            last_error = f"[{model_name} 실패]: {response.text}"
+        except Exception as e:
+            last_error = f"[{model_name} 오류]: {str(e)}"
+            continue
+            
+    return f"🚨 모든 통신망 두절:\n{last_error}"
+
+# --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.8</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.9</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ VCS", expanded=False):
-            st.markdown("**V0.5.8 가동**\n- Timeout 60초 확장\n- 정식 Gemini API 경로 복구")
+            st.markdown("**V0.5.9 가동**\n- 3단계 자동 우회 통신망 적용\n- v1beta 엔드포인트 최적화")
         st.divider()
         st.markdown("**🤖 AI 참모 통신**")
         api_key = st.text_input("Gemini API Key 입력 후 Enter", type="password")
@@ -162,10 +154,9 @@ try:
         
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
-    
     stock_fetch_list = [(str(row.get('종목코드', '')), get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])) for _, row in display_df.iterrows() if str(row.get('종목코드', '')) and "현금" not in str(row['종목명']) and "예수금" not in str(row['종목명'])]
     
-    with st.spinner("🚀 데이터 분석 중..."):
+    with st.spinner("🚀 분석 중..."):
         tcr_results = quant_analyzer.get_tcr_scores_batch(stock_fetch_list, {"flow": 0.4, "trend": 0.4, "vcp": 0.2})
 
     tab_main, tab_analysis, tab_ai = st.tabs(["🚀 관제실", "🔬 분석실", "🤖 AI 브리핑"])
@@ -181,46 +172,41 @@ try:
             
         total_eval = display_df['평가금액'].sum()
         total_profit = display_df['평가손익'].sum()
-        daily_delta = sum((get_safe_val(r,['현재가2','현재가','기준가','매수단가']) - get_safe_val(r,['전일종가2','전일종가'])) * r.get('잔고수량',0) for _,r in display_df.iterrows() if get_safe_val(r,['전일종가2','전일종가']) > 0)
         st.markdown(f"""<div class="kpi-grid">
             <div class="kpi-box"><span class="kpi-label">총 자산</span><span class="kpi-val text-white">{total_eval:,.0f}원</span></div>
             <div class="kpi-box"><span class="kpi-label">누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f}원</span></div>
-            <div class="kpi-box"><span class="kpi-label">전일 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{daily_delta:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
 
         is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
         df_stock, df_cash = display_df[~is_cash].copy(), display_df[is_cash].copy()
-        
-        if sort_option == "수익률 순": df_stock = df_stock.sort_values(by='안전_수익률', ascending=False)
-        else: df_stock = df_stock.sort_values(by='종목명')
+        df_stock = df_stock.sort_values(by='안전_수익률' if sort_option=="수익률 순" else '종목명', ascending=(sort_option=="수익률 순"))
         
         for _, row in pd.concat([df_stock, df_cash]).iterrows():
             now_p = get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])
-            tcr = tcr_results.get(str(row.get('종목코드', '')), {"score": 0, "status": "데이터부족", "color": "text-gray"})
+            tcr = tcr_results.get(str(row.get('종목코드', '')), {"score": 0, "status": "부족", "color": "text-gray"})
             st.markdown(f"""<details class="premium-card"><summary><div class="card-header-flex">
-                <span class="stock-name">{row['종목명']}</span>
-                <span class="val-num">{now_p:,.0f}원</span></div></summary>
+                <span class="stock-name">{row['종목명']}</span><span class="val-num">{now_p:,.0f}원</span></div></summary>
                 <div style="padding:15px; background:#020617; border-top:1px solid #1e293b;">
-                <p>수익률: {row['안전_수익률']*100:.2f}% / TCR: <span style='color:{tcr['color']}'>{tcr['score']}% ({tcr['status']})</span></p></div></details>""", unsafe_allow_html=True)
+                수익률: {row['안전_수익률']*100:.2f}% / TCR: <span style='color:{tcr['color']}'>{tcr['score']}%</span></div></details>""", unsafe_allow_html=True)
 
     with tab_analysis:
         plot_df = df_stock.copy()
         plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
         plot_df['표시수익률'] = plot_df['안전_수익률'] * 100
         chart = alt.Chart(plot_df).mark_circle(size=100).encode(
-            x=alt.X('TCR점수:Q', title='TCR 확신율'), y=alt.Y('표시수익률:Q', title='수익률(%)'),
+            x=alt.X('TCR점수:Q', title='TCR'), y=alt.Y('표시수익률:Q', title='수익률(%)'),
             color=alt.Color('TCR점수:Q', scale=alt.Scale(scheme='redblue')), tooltip=['종목명', 'TCR점수', '표시수익률']
         ).properties(height=400).interactive()
         st.altair_chart(chart, use_container_width=True)
 
     with tab_ai:
         st.subheader("🤖 제미나이 전술 참모")
-        user_context = st.text_area("사령관 특별 지시", placeholder="분석에 참고할 뉴스를 입력하세요.")
+        user_context = st.text_area("사령관 특별 지시", placeholder="추가 정보를 입력하세요.")
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
-            if not api_key: st.error("사이드바에 API Key 입력 후 Enter 필수!")
+            if not api_key: st.error("API Key 입력 필수!")
             else:
-                with st.spinner("🧠 퀀터멘털 데이터 분석 중... (최대 1분 소요)"):
-                    ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
-                    st.markdown(f"""<div style="background:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b;">{ai_report.replace(chr(10), '<br>')}</div>""", unsafe_allow_html=True)
+                with st.spinner("🧠 우회 통신망 가동 중..."):
+                    report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
+                    st.markdown(f"<div style='background:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b;'>{report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
 except Exception as e: st.error(f"기동 실패: {e}")
