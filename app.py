@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.6.0", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.6.1", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS (원본 스타일 유지) ---
 st.markdown("""
@@ -87,7 +87,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.6.0 패치] 5단계 지능형 자동 복구 통신 모듈 ---
+# --- 🚨 [V0.6.1 패치] 통신 에러 완전 박멸 모듈 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     clean_key = api_key.strip()
     pf_summary = [f"- {r['종목명']}: {r['안전_수익률']*100:.1f}%, TCR {tcr_results.get(str(r['종목코드']),{}).get('score',0)}%" for _, r in portfolio_df.iterrows() if "현금" not in str(r['종목명']) and "예수금" not in str(r['종목명'])]
@@ -96,44 +96,34 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
     headers = {'Content-Type': 'application/json'}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    # 5단계 모델 탐색 리스트 (v1 정식 경로 사용)
-    model_candidates = [
-        "gemini-1.5-flash", 
-        "gemini-1.5-flash-8b", 
-        "gemini-1.5-pro", 
-        "gemini-2.0-flash-exp", 
+    # [V0.6.1] 구글 API에서 현재 가장 응답이 확실한 모델 식별자 3종
+    model_list = [
+        "gemini-1.5-flash-002",
+        "gemini-1.5-flash",
         "gemini-pro"
     ]
     
-    errors = []
-    for model_name in model_candidates:
+    last_err = ""
+    for model_name in model_list:
         try:
-            # v1 정식 엔드포인트 사용
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={clean_key}"
+            # v1beta 엔드포인트가 모델 스캔에 가장 관대함
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             
             if response.status_code == 200:
                 return response.json()['candidates'][0]['content']['parts'][0]['text']
-            
-            # v1beta로 재시도 (우회로)
-            url_beta = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={clean_key}"
-            response_beta = requests.post(url_beta, headers=headers, json=payload, timeout=60)
-            
-            if response_beta.status_code == 200:
-                return response_beta.json()['candidates'][0]['content']['parts'][0]['text']
-                
-            errors.append(f"{model_name}: {response.status_code}")
+            last_err = f"({model_name} 거절: {response.status_code})"
         except Exception as e:
-            errors.append(f"{model_name} Error: {str(e)}")
+            last_err = f"({model_name} 에러: {str(e)})"
             continue
             
-    return f"🚨 전 모델 통신 두절:\n" + "\n".join(errors)
+    return f"🚨 통신 규격 불일치. API 키의 유효성을 다시 확인하거나, 잠시 후 시도하십시오. {last_err}"
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.6.0</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.6.1</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
@@ -182,7 +172,7 @@ try:
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not api_key: st.error("API Key 입력 필수!")
             else:
-                with st.spinner("🧠 5단계 모델 자동 스캔 및 통신 중..."):
+                with st.spinner("🧠 통신망 최종 복구 시도 중..."):
                     report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
                     st.markdown(f"<div style='background:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b;'>{report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
