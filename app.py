@@ -6,9 +6,8 @@ import json, requests, time
 from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
-# 🚨 [V0.5.1 패치] 에러를 유발하는 google.generativeai 라이브러리를 삭제하고 기본 requests로 우회합니다.
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.2", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 st.markdown("""
@@ -90,7 +89,6 @@ def get_market_indices():
         
         res_ex = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         sx = BeautifulSoup(res_ex.text, 'html.parser')
-        
         ex_box = sx.select_one("#exchangeList > li.on > a.head.usd")
         if ex_box: indices["USD/KRW"] = (ex_box.select_one(".value").text, ex_box.select_one(".change").text, "text-red" if "상승" in ex_box.select_one(".blind").text else "text-blue")
         
@@ -112,7 +110,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.1 패치] 별도 라이브러리 없이 REST API로 AI와 직접 통신 ---
+# --- AI API 통신 모듈 (REST API) ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
         pf_summary = []
@@ -146,7 +144,6 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
         """
         
-        # 라이브러리 없이 직접 구글 서버로 전송
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         data = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -167,13 +164,13 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.1</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.2</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.1 (무설치 AI 통신판)`")
-            st.markdown("**패치 내역:**\n- 에러 유발 라이브러리 삭제\n- REST API 다이렉트 통신망 개설")
+            st.markdown("**현재 가동:** `V0.5.2 (안정화 통합판)`")
+            st.markdown("**패치 내역:**\n- 기동 관제실 종목 카드 출력 누락 버그 완벽 수정\n- AI 참모 통신 및 수동 작전 모드 안정화")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
@@ -241,10 +238,73 @@ try:
         total_eval = display_df['평가금액'].sum()
         total_profit = display_df['평가손익'].sum()
         total_roi = (total_profit / display_df['매수금액'].sum() * 100) if display_df['매수금액'].sum() > 0 else 0
+        daily_delta = sum((get_safe_val(r,['현재가2','현재가','기준가','매수단가']) - get_safe_val(r,['전일종가2','전일종가'])) * r.get('잔고수량',0) for _,r in display_df.iterrows() if get_safe_val(r,['전일종가2','전일종가']) > 0)
+        total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
+
         st.markdown(f"""<div class="kpi-grid">
             <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}원</span></div>
             <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f}원 <span class="kpi-delta">({total_roi:.2f}%)</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{'▲' if daily_delta>0 else '▼' if daily_delta<0 else ''}{abs(daily_delta):,.0f}원</span></div>
+            <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
+
+        # 🚨 [V0.5.2 패치] 누락되었던 종목 카드 렌더링 복원
+        is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
+        df_stock, df_cash = display_df[~is_cash].copy(), display_df[is_cash].copy()
+
+        # 당일 등락률 계산
+        def calc_gap(r):
+            n = get_safe_val(r, ['현재가2', '현재가', '기준가', '매수단가'])
+            p = get_safe_val(r, ['전일종가2', '전일종가'])
+            if p > 0: return ((n - p) / p) * 100
+            return 0
+        df_stock['당일등락율'] = df_stock.apply(calc_gap, axis=1)
+
+        if sort_option == "수익률 순": df_stock = df_stock.sort_values(by='안전_수익률', ascending=False)
+        elif sort_option == "당일 등락 순": df_stock = df_stock.sort_values(by='당일등락율', ascending=False)
+        else: df_stock = df_stock.sort_values(by='종목명')
+        
+        list_df = pd.concat([df_stock, df_cash])
+
+        html_cards = ""
+        for _, row in list_df.iterrows():
+            now_p = get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])
+            prev_p = get_safe_val(row, ['전일종가2', '전일종가'])
+            y_val = row['안전_수익률']
+            code = str(row.get('종목코드', ''))
+            diff = now_p - prev_p if prev_p > 0 else 0
+            rate = (diff / prev_p * 100) if prev_p > 0 else 0
+            
+            if "현금" in str(row['종목명']) or "예수금" in str(row['종목명']):
+                tcr_info = {"score": "-", "status": "안전 자산 대기", "color": "text-blue"}
+            else:
+                tcr_info = tcr_results.get(code, {"score": 0, "status": "데이터 확인 불가", "color": "text-gray"})
+            
+            cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
+            dt = "dot-red" if y_val > 0 else "dot-blue" if y_val < 0 else "dot-gray"
+            ds = f"<span class='{'text-red' if diff>0 else 'text-blue' if diff<0 else 'text-gray'}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f}({rate:.1f}%)</span>"
+            
+            html_cards += f"""
+            <details class="premium-card">
+                <summary><div class="card-header-flex">
+                    <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name">{row['종목명']}</span></div>
+                    <div class="card-right">
+                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num {cl}">{now_p:,.0f}</span></div>
+                        <div class="val-box"><span class="val-label">당일비</span><span class="val-num">{ds}</span></div>
+                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num {cl}">{y_val*100 if -1<y_val<1 else y_val:.2f}%</span></div>
+                    </div>
+                </div></summary>
+                <div class="card-body">
+                    <div class="metric-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; background:#020617; padding:15px; border-radius:0 0 10px 10px; border-top:1px solid #1e293b;">
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">평가 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:rgb(70,130,180);">{row['평가금액']:,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">🔥 확신율 (TCR)</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:{tcr_info.get('color', 'text-gray')};">{tcr_info.get('score', 0)}% <span style='font-size:0.7rem;'>({tcr_info.get('status', '')})</span></div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['매수금액']:,.0f}원</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">보유 수량</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['잔고수량']:,.0f}주</div></div>
+                    </div>
+                </div>
+            </details>"""
+        st.markdown(html_cards, unsafe_allow_html=True)
+        st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
 
     with tab_analysis:
         st.subheader("📊 1. 전술 사분면 (수익률 vs 확신율)")
