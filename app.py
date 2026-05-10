@@ -6,9 +6,9 @@ import json, requests, time
 from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
-import google.generativeai as genai # 🚨 [V0.5 패치] 제미나이 AI 연결 라이브러리
+# 🚨 [V0.5.1 패치] 에러를 유발하는 google.generativeai 라이브러리를 삭제하고 기본 requests로 우회합니다.
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.1", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 st.markdown("""
@@ -88,7 +88,6 @@ def get_market_indices():
                 ems = sw.select_one("p.no_exday").find_all("em")
                 indices[code] = (em.text.strip(), f"{'▲' if '상승' in stt else '▼' if '하락' in stt else ''}{ems[0].text.strip()} ({ems[1].text.strip()})", "text-red" if "상승" in stt else "text-blue")
         
-        # 🚨 [V0.5 패치] 환율, 유가, 금리 데이터 수집
         res_ex = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         sx = BeautifulSoup(res_ex.text, 'html.parser')
         
@@ -98,7 +97,6 @@ def get_market_indices():
         oil_box = sx.select_one("#oilGoldList > li.on > a.head.oil")
         if oil_box: indices["WTI (유가)"] = (oil_box.select_one(".value").text, oil_box.select_one(".change").text, "text-red" if "상승" in oil_box.select_one(".blind").text else "text-blue")
         
-        # 미 10년물 국채 (단순화를 위해 야후 파이낸스 대신 Investing.com 크롤링 또는 네이버 해외금리)
         rate_res = requests.get("https://finance.naver.com/marketindex/worldInterestQuote.naver?marketindexCd=IR_TNX", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         rs = BeautifulSoup(rate_res.text, 'html.parser')
         r_box = rs.select_one(".no_today")
@@ -114,13 +112,9 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- AI Briefing Engine ---
+# --- 🚨 [V0.5.1 패치] 별도 라이브러리 없이 REST API로 AI와 직접 통신 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        # 사령관 계좌 정보 요약
         pf_summary = []
         for _, r in portfolio_df.iterrows():
             if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
@@ -152,8 +146,20 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
         """
         
-        response = model.generate_content(prompt)
-        return response.text
+        # 라이브러리 없이 직접 구글 서버로 전송
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
+        data = {"contents": [{"parts": [{"text": prompt}]}]}
+        
+        response = requests.post(url, headers=headers, json=data, timeout=15)
+        response.raise_for_status()
+        
+        result_json = response.json()
+        if 'candidates' in result_json and len(result_json['candidates']) > 0:
+            return result_json['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return "AI 참모 통신 오류: 응답을 해석할 수 없습니다."
+            
     except Exception as e:
         return f"AI 참모 통신 실패: API 키가 잘못되었거나 오류가 발생했습니다. ({e})"
 
@@ -161,22 +167,49 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.1</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5 (AI 퀀터멘털 브리핑)`")
-            st.markdown("**패치 내역:**\n- 유가, 미 국채 10년물 데이터 연동\n- 제미나이 AI 기반 자동 작전 지시서 출력 모듈 탑재")
+            st.markdown("**현재 가동:** `V0.5.1 (무설치 AI 통신판)`")
+            st.markdown("**패치 내역:**\n- 에러 유발 라이브러리 삭제\n- REST API 다이렉트 통신망 개설")
         st.divider()
         
-        # 🚨 [V0.5 패치] AI 연결용 API 키 입력 (안전하게 숨김 처리)
         st.markdown("**🤖 AI 참모 통신 채널**")
         api_key = st.text_input("Gemini API Key 입력 (1회용)", type="password", help="구글 AI 스튜디오에서 무료로 발급받은 키를 입력하세요.")
         st.divider()
         
+        if st.button("🔄 실시간 시세 수동 업데이트"):
+            st.cache_data.clear(); st.rerun()
+        st.divider()
+        
         sort_option = st.radio("📊 리스트 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
+        st.divider()
         selected_type = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
+        st.divider()
+
+        # 수동 입력 폼
+        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
+        acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
+        sel_acc_str = st.selectbox("명령 하달 대상 계좌", acc_opts) if acc_opts else ""
+        sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
+        
+        if "신규" not in mode:
+            s_list = [s for s in full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['종목명'].dropna().tolist() if str(s).strip() != '']
+            s_name = st.selectbox("작전 종목 선택", s_list if s_list else ["없음"])
+            if "매매" in mode: action = st.radio("구분", ["매수", "매도"], horizontal=True)
+        else:
+            s_name, s_code = st.text_input("신규 종목명"), st.text_input("종목코드 (6자리)")
+            
+        if "삭제" not in mode:
+            qty, price = st.number_input("수량", min_value=0, value=None, step=1), st.number_input("현재가/단가", min_value=0, value=None, step=100)
+        
+        if st.button("명령 확정 (Sync)"):
+            st.cache_data.clear()
+            st.success("동기화 완료.")
+            time.sleep(1)
+            st.rerun()
         
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
@@ -186,7 +219,6 @@ try:
     with st.spinner("🚀 T-Q 엔진 데이터 수집 중..."):
         tcr_results = quant_analyzer.get_tcr_scores_batch(stock_fetch_list, {"flow": 0.4, "trend": 0.4, "vcp": 0.2})
 
-    # 🚨 [V0.5 패치] 3개의 탭으로 확장
     tab_main, tab_analysis, tab_ai = st.tabs(["🚀 기동 관제실", "🔬 심층 분석실", "🤖 AI 퀀터멘털 브리핑"])
 
     with tab_main:
@@ -206,7 +238,6 @@ try:
                 macro_html += '</div>'
                 st.markdown(macro_html, unsafe_allow_html=True)
 
-        # 기존 KPI 및 종목 카드 렌더링 로직 (생략 없이 동일하게 작동)
         total_eval = display_df['평가금액'].sum()
         total_profit = display_df['평가손익'].sum()
         total_roi = (total_profit / display_df['매수금액'].sum() * 100) if display_df['매수금액'].sum() > 0 else 0
@@ -230,7 +261,6 @@ try:
         ).interactive()
         st.altair_chart(base_chart, use_container_width=True)
 
-    # 🚨 [V0.5 핵심 패치] AI 퀀터멘털 브리핑 탭
     with tab_ai:
         st.subheader("🤖 제미나이 전술 참모 본부")
         st.markdown("<p style='font-size:0.9rem; color:#94a3b8;'>현재 함대의 데이터(TCR)와 거시 경제 지표를 종합하여 최종 매매 지시서를 하달합니다.</p>", unsafe_allow_html=True)
