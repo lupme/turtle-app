@@ -6,8 +6,8 @@ import json, requests, time, re
 from bs4 import BeautifulSoup
 import quant_analyzer
 
-# --- [1] V0.1 정통 규격 CSS ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.1", layout="wide", initial_sidebar_state="expanded")
+# --- [1] V0.2 정통 규격 CSS ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.2", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -42,7 +42,6 @@ st.markdown("""
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
     .val-num { font-size: 1rem; font-weight: 800; }
     
-    /* 🚨 사이드바 버튼 디자인 적용 */
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 700; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
     .stButton>button:hover { border-color: rgb(70,130,180); color: rgb(70,130,180); }
     
@@ -69,6 +68,11 @@ def load_data():
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
     full_df = pd.DataFrame(sheet.get_all_records())
     df = full_df.copy()
+    
+    # 🚨 [V0.2 패치] 계좌유형 및 종목명 데이터 무결성(공백 제거) 강제 수행
+    if '계좌유형' in df.columns:
+        df['계좌유형'] = df['계좌유형'].astype(str).str.strip()
+        
     for col in df.columns:
         if col not in ['계좌번호', '계좌유형', '종목명', '종목코드', '상품', '구분']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
@@ -121,10 +125,18 @@ def get_safe_val(r, cols):
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.1</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.2</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
+        
+        # 🚨 [V0.2 패치] 함대 버전 관리(VCS) 패널 복구
+        with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=True):
+            st.markdown("**현재 가동:** `V0.2`")
+            st.markdown("**직전 안정:** `V0.1 (현금 후순위 패치)`")
+            st.markdown("**패치 내역:**")
+            st.markdown("- 계좌 필터 무반응 버그 수정 (공백 제거)\n- 사이드바 버전 추적 시스템 재도입")
+        st.divider()
         
         if st.button("🔄 실시간 시세 수동 업데이트"):
             st.cache_data.clear()
@@ -140,7 +152,9 @@ try:
         
         mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
         acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
-        sel_acc_str = st.selectbox("작전 계좌 선택", acc_opts) if acc_opts else ""
+        
+        # (명칭 변경) "작전 계좌 선택" -> "명령 하달 대상 계좌" (필터와의 혼동 방지)
+        sel_acc_str = st.selectbox("명령 하달 대상 계좌", acc_opts) if acc_opts else ""
         sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
         
         if "신규" not in mode:
@@ -176,6 +190,7 @@ try:
             macro_html += '</div>'
             st.markdown(macro_html, unsafe_allow_html=True)
 
+    # 🚨 계좌 필터 즉각 반응 로직
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
     total_eval = display_df['평가금액'].sum()
@@ -207,17 +222,14 @@ try:
         return 0
     display_df['당일등락율'] = display_df.apply(calc_gap, axis=1)
 
-    # 🚨 [V0.1 핵심 패치] 현금/예수금 무조건 후순위 배치 로직
     is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
     df_stock = display_df[~is_cash].copy()
     df_cash = display_df[is_cash].copy()
 
-    # 주식만 선택한 정렬 기준에 따라 정렬
     if sort_option == "수익률 순": df_stock = df_stock.sort_values(by='안전_수익률', ascending=False)
     elif sort_option == "당일 등락 순": df_stock = df_stock.sort_values(by='당일등락율', ascending=False)
     else: df_stock = df_stock.sort_values(by='종목명')
 
-    # 주식 밑에 현금 데이터를 결합
     display_df = pd.concat([df_stock, df_cash])
 
     html_cards = ""
