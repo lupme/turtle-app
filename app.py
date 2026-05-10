@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.4", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.5", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 st.markdown("""
@@ -110,10 +110,9 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚨 [V0.5.4 패치] API 통신 추적 및 자동 공백 제거 모듈 ---
+# --- 🚨 [V0.5.5 패치] 구글 서버가 요구하는 정확한 최신 모델 주소 적용 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
-        # 사령관님이 복사하면서 실수로 들어간 띄어쓰기나 줄바꿈을 강제로 모두 지워버림
         clean_key = api_key.strip()
         
         pf_summary = []
@@ -146,14 +145,13 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
         """
         
-        # 모델명 복원 및 클린 키 삽입
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={clean_key}"
+        # 🚨 여기서 실수했던 모델명을 -latest 로 완벽 복원했습니다.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={clean_key}"
         headers = {'Content-Type': 'application/json'}
         data = {"contents": [{"parts": [{"text": prompt}]}]}
         
         response = requests.post(url, headers=headers, json=data, timeout=15)
         
-        # 구글 서버에서 거절했을 경우, 거절 사유를 그대로 리턴
         if response.status_code != 200:
             return f"⚠️ 구글 서버 거절 사유 (에러 추적):\n{response.text}"
             
@@ -170,13 +168,13 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.4</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.5</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.4 (통신 추적판)`")
-            st.markdown("**패치 내역:**\n- API 키 공백 자동 제거 필터 적용\n- 에러 발생 시 구글 서버의 원본 거절 사유 출력 기능 추가")
+            st.markdown("**현재 가동:** `V0.5.5 (통신 정상화 판)`")
+            st.markdown("**패치 내역:**\n- 404 에러 원인 제거 (모델 주소 -latest 복원)")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
