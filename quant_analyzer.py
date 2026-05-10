@@ -6,7 +6,6 @@ import re
 
 @st.cache_data(ttl=300)
 def fetch_quant_data(stock_code: str, current_price: int):
-    """네이버 금융 실시간 데이터 파서 (안정화 버전)"""
     if not stock_code or current_price <= 0:
         return 50.0, 50.0, 50.0
         
@@ -61,5 +60,5 @@ def get_tcr_score(stock_code: str, current_price: int) -> dict:
 
 def get_analysis_legend() -> str:
     return """<div style="margin-top: 10px; padding: 15px; border-top: 1px solid #1e293b; border-radius: 8px;">
-        <p style="color: #6C7A89; font-size: 0.8rem; font-weight: 700; margin-bottom: 5px;">[M01: T-Q Engine Baseline V49.2]</p>
+        <p style="color: #6C7A89; font-size: 0.8rem; font-weight: 700; margin-bottom: 5px;">[M01: T-Q Engine Baseline V47.0]</p>
         <p style="color: #6C7A89; font-size: 0.75rem; margin: 0;">* 외국인수급(40%) + 52주추세(40%) + VCP방어력(20%)</p></div>"""
