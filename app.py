@@ -26,7 +26,7 @@ st.markdown("""
     .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
     .text-blue { color: rgb(70,130,180) !important; }
-    .text-red { color: #ef4444 !important; }
+    .text-red { color: #f87171 !important; } /* 소프트 빨강 적용 */
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
@@ -37,7 +37,7 @@ st.markdown("""
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
+    .dot-red { background-color: #f87171; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); } /* 소프트 빨강 적용 */
     .stock-name { font-size: 1rem; font-weight: 700; color: #ffffff; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
@@ -292,7 +292,7 @@ try:
                     </div>
                 </div></summary>
                 <div class="card-body">
-                    <div class="metric-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; background:#020617; padding:15px; border-radius:0 0 10px 10px; border-top:1px solid #1e293b;">
+                    <div class="metric-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; background:transparent; padding:15px; border-radius:0 0 10px 10px; border-top:1px solid #1e293b;">
                         <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">평가 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:rgb(70,130,180);">{row['평가금액']:,.0f}원</div></div>
                         <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">🔥 확신율 (TCR)</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:{tcr_info.get('color', 'text-gray')};">{tcr_info.get('score', 0)}% <span style='font-size:0.7rem;'>({tcr_info.get('status', '')})</span></div></div>
                         <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['매수금액']:,.0f}원</div></div>
@@ -313,7 +313,7 @@ try:
             x=alt.X('TCR점수:Q', scale=alt.Scale(domain=[0, 100]), title='TCR 확신율 (0~100)'),
             y=alt.Y('표시수익률:Q', title='현재 수익률 (%)'),
             size=alt.Size('평가금액:Q', legend=None),
-            color=alt.Color('TCR점수:Q', scale=alt.Scale(scheme='redblue', domain=[0, 100]), legend=None),
+            color=alt.Color('TCR점수:Q', scale=alt.Scale(range=['rgb(70,130,180)', '#f87171'], domain=[0, 100]), legend=None),
             tooltip=['종목명', 'TCR점수', '표시수익률', '평가금액']
         ).interactive()
         st.altair_chart(base_chart, use_container_width=True)
