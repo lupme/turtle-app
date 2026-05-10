@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 st.markdown("""
@@ -110,7 +110,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- AI API 통신 모듈 (REST API) ---
+# --- 🚨 [V0.5.3 패치] API 모델명을 최신 주소로 수정 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     try:
         pf_summary = []
@@ -144,7 +144,8 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
         3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
         """
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        # URL의 모델 이름을 gemini-1.5-flash-latest 로 수정
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         data = {"contents": [{"parts": [{"text": prompt}]}]}
         
@@ -164,13 +165,13 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.2</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.2 (안정화 통합판)`")
-            st.markdown("**패치 내역:**\n- 기동 관제실 종목 카드 출력 누락 버그 완벽 수정\n- AI 참모 통신 및 수동 작전 모드 안정화")
+            st.markdown("**현재 가동:** `V0.5.3 (AI 통신망 복구판)`")
+            st.markdown("**패치 내역:**\n- 404 Client Error 방지를 위해 Gemini 모델 주소를 최신 규격(-latest)으로 수정")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
@@ -248,11 +249,9 @@ try:
             <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}원</span></div>
         </div>""", unsafe_allow_html=True)
 
-        # 🚨 [V0.5.2 패치] 누락되었던 종목 카드 렌더링 복원
         is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
         df_stock, df_cash = display_df[~is_cash].copy(), display_df[is_cash].copy()
 
-        # 당일 등락률 계산
         def calc_gap(r):
             n = get_safe_val(r, ['현재가2', '현재가', '기준가', '매수단가'])
             p = get_safe_val(r, ['전일종가2', '전일종가'])
@@ -329,7 +328,7 @@ try:
         
         if st.button("🔥 AI 퀀터멘털 브리핑 생성", use_container_width=True):
             if not api_key:
-                st.error("사이드바에 Gemini API Key를 먼저 입력해 주십시오. (구글 AI Studio에서 무료 발급 가능)")
+                st.error("사이드바에 새로 발급받은 Gemini API Key를 입력해 주십시오.")
             else:
                 with st.spinner("🧠 퀀터멘털 데이터 종합 및 전술 생성 중... (약 10초 소요)"):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
