@@ -6,7 +6,7 @@ import re
 
 @st.cache_data(ttl=300)
 def fetch_quant_data(stock_code: str, current_price: int):
-    """네이버 금융 실시간 데이터 파서 (V49.2 안정화 버전)"""
+    """네이버 금융 실시간 데이터 파서 (안정화 버전)"""
     if not stock_code or current_price <= 0:
         return 50.0, 50.0, 50.0
         
