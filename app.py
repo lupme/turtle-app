@@ -6,7 +6,7 @@ import json, requests, time, re
 from bs4 import BeautifulSoup
 import quant_analyzer
 
-# --- [1] V49.1 정통 규격 CSS ---
+# --- [1] V49.1 정통 규격 CSS (+ 버튼 디자인 추가) ---
 st.set_page_config(page_title="거북이 함대 기동 본부 V49.1", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -41,6 +41,11 @@ st.markdown("""
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
     .val-num { font-size: 1rem; font-weight: 800; }
+    
+    /* 🚨 사이드바 버튼 디자인 적용 */
+    .stButton>button { width: 100%; border-radius: 8px; font-weight: 700; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
+    .stButton>button:hover { border-color: rgb(70,130,180); color: rgb(70,130,180); }
+    
     @media (max-width: 768px) {
         .kpi-grid { grid-template-columns: repeat(2, 1fr); }
         .kpi-val { font-size: 1.15rem; }
@@ -106,16 +111,27 @@ def get_market_indices():
     except: pass
     return indices
 
+def get_safe_val(r, cols):
+    for c in cols:
+        v = r.get(c, 0)
+        if v != 0 and pd.notna(v): return v
+    return 0
+
 # --- [3] 메인 기동 ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    
     st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.1</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         
+        # 🚨 [추가] 실시간 수동 업데이트 버튼 이식
+        if st.button("🔄 실시간 시세 수동 업데이트"):
+            st.cache_data.clear()
+            st.rerun()
+        st.divider()
+
         sort_option = st.radio("📊 리스트 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
         st.divider()
         
@@ -161,13 +177,6 @@ try:
             macro_html += '</div>'
             st.markdown(macro_html, unsafe_allow_html=True)
 
-    # 🚨 [중요] 비어있는 값을 0으로 오해하지 않도록 안전한 데이터 파싱 함수 추가
-    def get_safe_val(r, cols):
-        for c in cols:
-            v = r.get(c, 0)
-            if v != 0 and pd.notna(v): return v
-        return 0
-
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
     total_eval = display_df['평가금액'].sum()
@@ -191,14 +200,12 @@ try:
     </div>"""
     st.markdown(kpi_html, unsafe_allow_html=True)
 
-    # 🚨 정렬을 위한 안전한 등락률 계산 적용
+    display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
     def calc_gap(r):
         n = get_safe_val(r, ['현재가2', '현재가', '기준가', '매수단가'])
         p = get_safe_val(r, ['전일종가2', '전일종가'])
         if p > 0: return ((n - p) / p) * 100
         return 0
-
-    display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
     display_df['당일등락율'] = display_df.apply(calc_gap, axis=1)
 
     if sort_option == "수익률 순": display_df = display_df.sort_values(by='안전_수익률', ascending=False)
@@ -207,7 +214,6 @@ try:
 
     html_cards = ""
     for _, row in display_df.iterrows():
-        # 🚨 TDF 및 HTS 오차(현재가2/전일종가2) 완벽 반영
         now_p = get_safe_val(row, ['현재가2', '현재가', '기준가', '매수단가'])
         prev_p = get_safe_val(row, ['전일종가2', '전일종가'])
         y_val = row['안전_수익률']
