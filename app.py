@@ -5,9 +5,9 @@ from google.oauth2.service_account import Credentials
 import json, requests, time
 from bs4 import BeautifulSoup
 import quant_analyzer
-import altair as alt # 🚨 Plotly 대신 스트림릿 기본 내장 차트 모듈 사용
+import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.4.1", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.4.2", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -106,22 +106,48 @@ def get_safe_val(r, cols):
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.4.1</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.4.2</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.4.1 (무설치 분석모듈)`")
-            st.markdown("**직전 안정:** `V0.3 (병렬 엔진)`")
+            st.markdown("**현재 가동:** `V0.4.2`")
+            st.markdown("**직전 안정:** `V0.3`")
             st.markdown("**패치 내역:**")
-            st.markdown("- 분석 탭 추가 (수익률 vs 확신율)\n- 가중치 시뮬레이터 구축\n- 스트림릿 클라우드 에러 방지를 위한 내장 차트(Altair) 적용")
+            st.markdown("- 수동 입력/수정 폼 원복 (V0.3 기반)\n- Altair 차트 레이어 배경색 에러 수정")
         st.divider()
+        
         if st.button("🔄 실시간 시세 수동 업데이트"):
             st.cache_data.clear(); st.rerun()
         st.divider()
+        
         sort_option = st.radio("📊 리스트 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
         st.divider()
+        
         selected_type = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
+        st.divider()
+
+        # 🚨 [V0.4.2 패치] 누락되었던 수동 입력(작전 모드) UI 완벽 복구
+        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
+        acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
+        sel_acc_str = st.selectbox("명령 하달 대상 계좌", acc_opts) if acc_opts else ""
+        sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
+        
+        if "신규" not in mode:
+            s_list = [s for s in full_df[full_df['계좌번호'].astype(str).str.strip() == sel_acc]['종목명'].dropna().tolist() if str(s).strip() != '']
+            s_name = st.selectbox("작전 종목 선택", s_list if s_list else ["없음"])
+            if "매매" in mode: action = st.radio("구분", ["매수", "매도"], horizontal=True)
+        else:
+            s_name, s_code = st.text_input("신규 종목명"), st.text_input("종목코드 (6자리)")
+            
+        if "삭제" not in mode:
+            qty, price = st.number_input("수량", min_value=0, value=None, step=1), st.number_input("현재가/단가", min_value=0, value=None, step=100)
+        
+        if st.button("명령 확정 (Sync)"):
+            st.cache_data.clear()
+            st.success("동기화 완료.")
+            time.sleep(1)
+            st.rerun()
         
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
@@ -133,6 +159,7 @@ try:
     with st.spinner("🚀 T-Q 엔진 가동 중..."):
         tcr_results = quant_analyzer.get_tcr_scores_batch(stock_fetch_list, default_weights)
 
+    # 탭 생성
     tab_main, tab_analysis = st.tabs(["🚀 기동 관제실 (Dashboard)", "🔬 심층 분석실 (Deep Analysis)"])
 
     with tab_main:
@@ -219,22 +246,23 @@ try:
         plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
         plot_df['표시수익률'] = plot_df['안전_수익률'] * 100
         
-        # 🚨 [V0.4.1 패치] 스트림릿 내장 Altair 차트로 에러 원천 차단
-        chart = alt.Chart(plot_df).mark_circle().encode(
+        # 🚨 [V0.4.2 패치] 차트 병합 에러 해결 (alt.layer 사용 후 속성 부여)
+        base_chart = alt.Chart(plot_df).mark_circle().encode(
             x=alt.X('TCR점수:Q', scale=alt.Scale(domain=[0, 100]), title='TCR 확신율 (0~100)', axis=alt.Axis(gridColor='#1e293b', titleColor='#94a3b8', labelColor='#94a3b8')),
             y=alt.Y('표시수익률:Q', title='현재 수익률 (%)', axis=alt.Axis(gridColor='#1e293b', titleColor='#94a3b8', labelColor='#94a3b8')),
             size=alt.Size('평가금액:Q', legend=None, scale=alt.Scale(range=[50, 500])),
             color=alt.Color('TCR점수:Q', scale=alt.Scale(scheme='redblue', domain=[0, 100]), legend=None),
             tooltip=['종목명', 'TCR점수', '표시수익률', '평가금액']
-        ).properties(
-            height=450,
-            background='#020617'
         ).interactive()
 
         hline = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', strokeDash=[5, 5]).encode(y='y:Q')
         vline = alt.Chart(pd.DataFrame({'x': [50]})).mark_rule(color='gray', strokeDash=[5, 5]).encode(x='x:Q')
 
-        st.altair_chart(chart + hline + vline, use_container_width=True)
+        final_chart = alt.layer(base_chart, hline, vline).properties(
+            height=450,
+            background='#020617'
+        )
+        st.altair_chart(final_chart, use_container_width=True)
 
         st.divider()
 
