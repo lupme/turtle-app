@@ -48,6 +48,7 @@ def load_data():
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray")}
     try:
+        # 국내 지수 및 환율 수집
         res_main = requests.get("https://finance.naver.com/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
         soup_main = BeautifulSoup(res_main.text, 'html.parser')
         for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
@@ -56,11 +57,28 @@ def get_market_indices():
                 val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
                 bt = box.select_one(".blind").text
                 indices[code] = (val, f"{'▲' if '상승' in bt else '▼' if '하락' in bt else ''}{diff} ({rate})", "text-red" if "상승" in bt else "text-blue")
-        res_ex = requests.get("https://finance.naver.com/marketindex/", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-        sx = BeautifulSoup(res_ex.text, 'html.parser')
-        ex_box = sx.select_one("#exchangeList > li.on > a.head.usd")
+        
+        ex_box = soup_main.select_one("#exchangeList > li.on > a.head.usd")
         if ex_box:
             indices["USD/KRW"] = (ex_box.select_one(".value").text, ex_box.select_one(".change").text, "text-red" if "상승" in ex_box.select_one(".blind").text else "text-blue")
+
+        # 해외 지수 수집 (누락되었던 로직 복원)
+        world_symbols = {"NASDAQ": "NAS@IXIC", "S&P 500": "SPI@SPX", "DOW": "DJI@DJI", "VIX": "SPI@SPVXSP"}
+        for key, sym in world_symbols.items():
+            try:
+                w_url = f"https://finance.naver.com/world/sise.naver?symbol={sym}"
+                w_res = requests.get(w_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                w_soup = BeautifulSoup(w_res.text, 'html.parser')
+                val = w_soup.select_one(".no_today .blind").text
+                ex_el = w_soup.select_one(".no_exday")
+                diff = ex_el.select(".blind")[0].text
+                rate = ex_el.select(".blind")[1].text
+                is_up = "상승" in ex_el.text or "+" in str(ex_el)
+                sign = "▲" if is_up else "▼"
+                color = "text-red" if is_up else "text-blue"
+                indices[key] = (val, f"{sign}{diff} ({rate}%)", color)
+            except:
+                pass
     except: pass
     return indices
 
@@ -75,7 +93,7 @@ try:
     indices = get_market_indices()
     st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.2</div>', unsafe_allow_html=True)
     
-    # 누락되었던 주요 지수 출력 UI 복원
+    # 지수 패널 UI 렌더링
     idx_html = '<div class="index-container">'
     for k, v in indices.items():
         idx_html += f'<div class="index-item"><span class="kpi-label" style="margin-bottom:2px;">{k}</span><span class="{v[2]}" style="font-size:1.1rem; font-weight:800;">{v[0]}</span><span style="font-size:0.75rem; color:#94a3b8;">{v[1]}</span></div>'
@@ -89,14 +107,12 @@ try:
             st.markdown("**현재 가동:** `V49.2 (정통 베이스라인)`")
             st.markdown("**직전 안정:** `-`")
             st.markdown("**패치 내역:**")
-            st.markdown("- 초기 이주 원본 코드 100% 롤백\n- 누락된 주요 거시 경제 지표 UI 복원")
+            st.markdown("- 원본 100% 복원\n- 나스닥/S&P 등 해외지수 크롤링 로직 추가")
             
         st.divider()
         sort_option = st.radio("📊 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
         acc_filter = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
         st.divider()
-        mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
-        
         if st.button("🚀 데이터 동기화 (Sync)"):
             st.cache_data.clear()
             st.rerun()
