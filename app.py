@@ -8,9 +8,9 @@ import quant_analyzer
 import altair as alt
 
 # --- 오리지널 설정 ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.4.2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.4.1", layout="wide", initial_sidebar_state="expanded")
 
-# --- 오리지널 프리미엄 디자인 CSS ---
+# --- V0.4.1 오리지널 프리미엄 디자인 CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -68,7 +68,7 @@ def load_data():
     df = full_df.copy()
     if '계좌유형' in df.columns: df['계좌유형'] = df['계좌유형'].astype(str).str.strip()
     for col in df.columns:
-        if col not in ['계좌번호', '계좌유형', '종목명', '종목코드']:
+        if col not in ['계좌번호', '계좌유형', '종목명', '종목코드', '상품', '구분']:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.replace('원', '').str.replace('%', ''), errors='coerce').fillna(0)
     df = df[df['종목명'].astype(str).str.strip() != '']
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액|총자산', na=False)]
@@ -83,7 +83,9 @@ def get_market_indices():
         for name, selector in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
             box = soup.select_one(selector)
             if box:
-                indices[name] = (box.select_one(".num").text, f"{box.select_one('.num2').text} ({box.select_one('.num3').text})", "text-red" if "상승" in box.select_one(".blind").text else "text-blue")
+                val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
+                bt = box.select_one(".blind").text
+                indices[name] = (val, f"{'▲' if '상승' in bt else '▼' if '하락' in bt else ''}{diff} ({rate})", "text-red" if "상승" in bt else "text-blue")
     except: pass
     return indices
 
@@ -97,7 +99,7 @@ def get_safe_val(r, cols):
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.4.2 [ORIGINAL RESTORED]</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.4.1</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
@@ -167,7 +169,7 @@ try:
                     </div>
                 </div></summary>
                 <div class="card-body-inner">
-                    <div class="tcr-line">🔥 AI 확신율(TCR): <span style="color:{tcr['color']}; font-weight:800;">{tcr['score']}% ({tcr['status']}) [수급:100 추세:50 VCP:100]</span></div>
+                    <div class="tcr-line">🔥 AI 확신율(TCR): <span style="color:{tcr['color']}; font-weight:800;">{tcr['score']}% ({tcr['status']})</span></div>
                     <div class="meta-line">평가금액: {row['평가금액']:,.0f}원 / 평가손익: <span class="{'text-red' if is_up else 'text-blue'}">{row['평가손익']:,.0f}원</span> / 보유수량: {row.get('잔고수량',0)}주</div>
                 </div>
             </details>""", unsafe_allow_html=True)
