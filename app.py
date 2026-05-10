@@ -6,8 +6,8 @@ import json, requests, time, re
 from bs4 import BeautifulSoup
 import quant_analyzer
 
-# --- [1] V49.1 정통 규격 CSS (+ 버튼 디자인 추가) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V49.1", layout="wide", initial_sidebar_state="expanded")
+# --- [1] V0.1 정통 규격 CSS ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.1", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -121,12 +121,11 @@ def get_safe_val(r, cols):
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.1</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.1</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         
-        # 🚨 [추가] 실시간 수동 업데이트 버튼 이식
         if st.button("🔄 실시간 시세 수동 업데이트"):
             st.cache_data.clear()
             st.rerun()
@@ -208,9 +207,18 @@ try:
         return 0
     display_df['당일등락율'] = display_df.apply(calc_gap, axis=1)
 
-    if sort_option == "수익률 순": display_df = display_df.sort_values(by='안전_수익률', ascending=False)
-    elif sort_option == "당일 등락 순": display_df = display_df.sort_values(by='당일등락율', ascending=False)
-    else: display_df = display_df.sort_values(by='종목명')
+    # 🚨 [V0.1 핵심 패치] 현금/예수금 무조건 후순위 배치 로직
+    is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
+    df_stock = display_df[~is_cash].copy()
+    df_cash = display_df[is_cash].copy()
+
+    # 주식만 선택한 정렬 기준에 따라 정렬
+    if sort_option == "수익률 순": df_stock = df_stock.sort_values(by='안전_수익률', ascending=False)
+    elif sort_option == "당일 등락 순": df_stock = df_stock.sort_values(by='당일등락율', ascending=False)
+    else: df_stock = df_stock.sort_values(by='종목명')
+
+    # 주식 밑에 현금 데이터를 결합
+    display_df = pd.concat([df_stock, df_cash])
 
     html_cards = ""
     for _, row in display_df.iterrows():
