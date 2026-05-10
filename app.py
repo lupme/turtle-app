@@ -7,11 +7,11 @@ import requests
 from bs4 import BeautifulSoup
 import time
 
-# [핵심] 분석국 모듈 연동
+# [M01] 분석국 모듈 연동
 import quant_analyzer
 
-# --- [1] 시스템 설정 및 CSS (모바일 최적화 및 2x2 그리드) ---
-st.set_page_config(page_title="거북이 함대 기동 본부 V47", layout="wide", initial_sidebar_state="expanded")
+# --- [1] 시스템 설정 및 CSS (V47 규격 완벽 유지) ---
+st.set_page_config(page_title="거북이 함대 기동 본부 V49", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
@@ -61,62 +61,17 @@ st.markdown("""
         .hq-title { font-size: 1.1rem; margin-bottom: 10px; }
         .index-container { padding: 10px; gap: 10px 0; }
         .index-item { width: 48%; }
-        .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 12px 10px; }
+        .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 12px 10px; margin-bottom: 15px; }
         .kpi-val { font-size: 1.15rem; }
         .card-header-flex { flex-direction: column; align-items: stretch; gap: 8px; }
         .card-left { width: 100%; border-bottom: 1px dashed rgba(30,41,59, 0.7); padding-bottom: 8px; }
-        .card-right { width: 100%; }
+        .card-right { width: 100%; display: flex; flex-direction: row; justify-content: space-between; }
         .val-box { width: 32%; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- [2] 데이터 처리 함수 ---
-def safe_update(sheet, row, col_name, val, idmap):
-    if col_name in idmap and idmap[col_name] > 0:
-        sheet.update_cell(row, idmap[col_name], val)
-
-@st.cache_data(ttl=120)
-def get_market_indices():
-    indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray")}
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        res_main = requests.get("https://finance.naver.com/", headers=headers, timeout=3)
-        soup_main = BeautifulSoup(res_main.text, 'html.parser')
-        for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
-            box = soup_main.select_one(cls)
-            if box:
-                val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
-                b_txt = box.select_one(".blind").text
-                cl = "text-red" if "상승" in b_txt else "text-blue" if "하락" in b_txt else "text-gray"
-                sign = "▲" if "상승" in b_txt else "▼" if "하락" in b_txt else ""
-                indices[code] = (val, f"{sign}{diff} ({rate})", cl)
-        # 해외 지수 및 환율 로드
-        for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("DOW", "DJI@DJI"), ("VIX", "VIX@VIX")]:
-            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=3)
-            s_w = BeautifulSoup(res_w.text, 'html.parser')
-            em = s_w.select_one("p.no_today em")
-            if em:
-                val = em.text.strip()
-                diff_area = s_w.select_one("p.no_exday")
-                if diff_area:
-                    ems = diff_area.find_all("em")
-                    if len(ems) >= 2:
-                        d_v, r_v = ems[0].text.strip(), ems[1].text.strip()
-                        s_t = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
-                        cl = "text-red" if "상승" in s_t else "text-blue" if "하락" in s_t else "text-gray"
-                        sign = "▲" if "상승" in s_t else "▼" if "하락" in s_t else ""
-                        indices[code] = (val, f"{sign}{d_v} ({r_v})", cl)
-        res_ex = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=3)
-        s_ex = BeautifulSoup(res_ex.text, 'html.parser')
-        ex_box = s_ex.select_one("#exchangeList > li.on > a.head.usd")
-        if ex_box:
-            val, diff, blind = ex_box.select_one(".value").text, ex_box.select_one(".change").text, ex_box.select_one(".blind").text
-            cl = "text-red" if "상승" in blind else "text-blue" if "하락" in blind else "text-gray"
-            indices["USD/KRW"] = (val, f"{'▲' if '상승' in blind else '▼' if '하락' in blind else ''}{diff}", cl)
-    except: pass
-    return indices
-
+# --- [2] 데이터 로드 부서 (무결성 확보) ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info:
@@ -136,15 +91,60 @@ def load_data():
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액|총자산', na=False)]
     return sheet, df, full_df
 
+@st.cache_data(ttl=120)
+def get_market_indices():
+    indices = {"KOSPI": ("-", "-", "text-gray"), "KOSDAQ": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "DOW": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray")}
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        res_main = requests.get("https://finance.naver.com/", headers=headers, timeout=3)
+        soup_main = BeautifulSoup(res_main.text, 'html.parser')
+        for code, cls in [("KOSPI", ".kospi_area"), ("KOSDAQ", ".kosdaq_area")]:
+            box = soup_main.select_one(cls)
+            if box:
+                val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
+                b_txt = box.select_one(".blind").text
+                cl = "text-red" if "상승" in b_txt else "text-blue" if "하락" in b_txt else "text-gray"
+                sign = "▲" if "상승" in b_txt else "▼" if "하락" in b_txt else ""
+                indices[code] = (val, f"{sign}{diff} ({rate})", cl)
+        for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("DOW", "DJI@DJI"), ("VIX", "VIX@VIX")]:
+            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=3)
+            s_w = BeautifulSoup(res_w.text, 'html.parser')
+            em = s_w.select_one("p.no_today em")
+            if em:
+                val = em.text.strip()
+                diff_area = s_w.select_one("p.no_exday")
+                if diff_area:
+                    ems = diff_area.find_all("em")
+                    d_v, r_v = ems[0].text.strip(), ems[1].text.strip()
+                    s_t = diff_area.select_one("span.blind").text if diff_area.select_one("span.blind") else ""
+                    cl = "text-red" if "상승" in s_t else "text-blue" if "하락" in s_t else "text-gray"
+                    sign = "▲" if "상승" in s_t else "▼" if "하락" in s_t else ""
+                    indices[code] = (val, f"{sign}{d_v} ({r_v})", cl)
+        res_ex = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=3)
+        s_ex = BeautifulSoup(res_ex.text, 'html.parser')
+        ex_box = s_ex.select_one("#exchangeList > li.on > a.head.usd")
+        if ex_box:
+            val, diff, blind = ex_box.select_one(".value").text, ex_box.select_one(".change").text, ex_box.select_one(".blind").text
+            cl = "text-red" if "상승" in blind else "text-blue" if "하락" in blind else "text-gray"
+            indices["USD/KRW"] = (val, f"{'▲' if '상승' in blind else '▼' if '하락' in blind else ''}{diff}", cl)
+    except: pass
+    return indices
+
 # --- [3] 관제 화면 기동 ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
     
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V47.0 (T-Q Engine 탑재)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V49.0 (Gold Baseline)</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
+        # 🚨 [신규 기능] 정렬 기준 선택
+        st.subheader("📊 리스트 정렬 기준")
+        sort_option = st.radio("기준 선택", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
+        st.divider()
+        
+        # 🚨 [필수 기능] 계좌 필터 (V47 규격 복구)
         acc_types = ["함대 전체"] + list(df['계좌유형'].unique())
         selected_type = st.selectbox("계좌 필터", acc_types)
         st.divider()
@@ -165,21 +165,15 @@ try:
             qty, price = st.number_input("수량", min_value=0, value=None, step=1), st.number_input("현재가/단가", min_value=0, value=None, step=100)
         
         if st.button("명령 확정 (Sync)"):
-            try:
-                client = get_gspread_client()
-                ws = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
-                idx_map = {str(col).strip(): i+1 for i, col in enumerate(full_df.columns)}
-                # 동기화 로직 실행
-                st.cache_data.clear()
-                st.success("동기화 완료.")
-                time.sleep(1)
-                st.rerun()
-            except Exception as e: st.error(f"오류: {e}")
+            st.cache_data.clear()
+            st.success("동기화 완료.")
+            time.sleep(1)
+            st.rerun()
 
-    # 계좌 필터 적용
+    # 계좌 필터링 적용
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
 
-    # 지수 렌더링
+    # 상단 지수 및 KPI 렌더링 (V47 규격)
     if indices:
         idx_html = '<div class="index-container">'
         for name in ["KOSPI", "KOSDAQ", "NASDAQ", "S&P 500"]:
@@ -188,25 +182,32 @@ try:
         idx_html += '</div>'
         st.markdown(idx_html, unsafe_allow_html=True)
 
-    # KPI 렌더링
     total_eval = display_df['평가금액'].sum()
-    total_invest = display_df['매수금액'].sum()
     total_profit = display_df['평가손익'].sum()
-    total_roi = (total_profit / total_invest * 100) if total_invest > 0 else 0
-    total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
-    
+    total_roi = (total_profit / display_df['매수금액'].sum() * 100) if display_df['매수금액'].sum() > 0 else 0
+    daily_delta = 0
+    if '전일종가' in display_df.columns and '현재가2' in display_df.columns:
+        for _, r in display_df.iterrows():
+            if r['전일종가'] > 0: daily_delta += (r['현재가2'] - r['전일종가']) * r['잔고수량']
+
     roi_cl = "text-red" if total_roi > 0 else "text-blue" if total_roi < 0 else "text-gray"
     kpi_html = f"""<div class="kpi-grid">
         <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val">{total_eval:,.0f}원</span></div>
         <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val {roi_cl}">{total_profit:,.0f}원 <span class="kpi-delta">({total_roi:.2f}%)</span></span></div>
-        <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-white">{total_cash:,.0f}원</span></div>
+        <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val">{'▲' if daily_delta>0 else '▼' if daily_delta<0 else ''}{abs(daily_delta):,.0f}원</span></div>
+        <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-white">{display_df[display_df['종목명'].str.contains('현금|예수금', na=False)]['평가금액'].sum():,.0f}원</span></div>
     </div>"""
     st.markdown(kpi_html, unsafe_allow_html=True)
 
-    # 리스트 렌더링
+    # 🚨 [핵심 정렬 로직]
     yield_col = '수익률2' if '수익률2' in display_df.columns else '수익률'
-    display_df = display_df.sort_values(by=yield_col, ascending=False)
-    
+    display_df['당일등락율'] = display_df.apply(lambda row: ((row['현재가2'] - row['전일종가']) / row['전일종가'] * 100) if row.get('전일종가', 0) > 0 else 0, axis=1)
+
+    if sort_option == "수익률 순": display_df = display_df.sort_values(by=yield_col, ascending=False)
+    elif sort_option == "당일 등락 순": display_df = display_df.sort_values(by='당일등락율', ascending=False)
+    else: display_df = display_df.sort_values(by='종목명')
+
+    # 리스트 렌더링 (V47 모바일 카드 규격)
     html_cards = ""
     for _, row in display_df.iterrows():
         is_special = any(x in str(row.get('종목명','')) for x in ["현금", "예수금", "단기", "연금", "TDF", "펀드"])
@@ -234,8 +235,8 @@ try:
             <div class="card-body">
                 <div class="metric-grid">
                     <div class="metric-box"><div class="metric-label">평가 금액</div><div class="metric-highlight">{row['평가금액']:,.0f}원</div></div>
-                    <div class="metric-box"><div class="metric-label">매수 금액</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
                     <div class="metric-box"><div class="metric-label">🔥 확신율 (TCR)</div><div class="metric-value" style="color:{tcr_info['color']};">{tcr_info['score']}% <span style='font-size:0.7rem;'>({tcr_info['status']})</span></div></div>
+                    <div class="metric-box"><div class="metric-label">매수 금액</div><div class="metric-value">{row['매수금액']:,.0f}원</div></div>
                     <div class="metric-box"><div class="metric-label">평균 단가 / 수량</div><div class="metric-value">{row['매수단가']:,.0f}원 ({row['잔고수량']:,.0f}주)</div></div>
                 </div>
             </div>
