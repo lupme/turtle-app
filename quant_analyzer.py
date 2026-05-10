@@ -6,7 +6,6 @@ import re
 
 @st.cache_data(ttl=300)
 def fetch_quant_data(stock_code: str, current_price: int):
-    """네이버 금융 실시간 데이터 파싱 (안정 최우선 버전)"""
     if not stock_code or current_price <= 0:
         return 50.0, 50.0, 50.0
         
@@ -17,7 +16,6 @@ def fetch_quant_data(stock_code: str, current_price: int):
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 52주 최고/최저 확보
         high52, low52 = current_price, current_price
         info_table = soup.select_one(".no_info")
         if info_table:
@@ -29,7 +27,6 @@ def fetch_quant_data(stock_code: str, current_price: int):
                         low52 = int(re.sub(r'[^0-9]', '', ems[1].text))
                     break
         
-        # 외국인 소진율 확보
         frgn_rate = 0.0
         th_tags = soup.find_all('th')
         for th in th_tags:
@@ -39,7 +36,6 @@ def fetch_quant_data(stock_code: str, current_price: int):
                     frgn_rate = float(re.sub(r'[^0-9.]', '', td.find('em').text))
                 break
 
-        # 점수 연산
         trend_score = ((current_price - low52) / (high52 - low52)) * 100 if high52 > low52 else 50.0
         flow_score = min(100.0, 40.0 + (frgn_rate * 1.5))
         vcp_score = max(0.0, 100.0 - (((high52 - current_price) / high52) * 100)) if high52 > 0 else 50.0
@@ -49,7 +45,6 @@ def fetch_quant_data(stock_code: str, current_price: int):
         return 50.0, 50.0, 50.0
 
 def get_tcr_score(stock_code: str, current_price: int) -> dict:
-    """거북이 확신율(TCR) 가중 평균 연산"""
     if not stock_code or current_price <= 0:
         return {"score": 0, "status": "데이터 부족", "color": "text-gray"}
 
