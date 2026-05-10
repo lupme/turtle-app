@@ -39,7 +39,7 @@ def fetch_quant_data(stock_code: str, current_price: int):
                     frgn_rate = float(re.sub(r'[^0-9.]', '', td.find('em').text))
                 break
 
-        # 점수 연산
+        # 점수 연산 (추세 + 수급 + 방어력)
         trend_score = ((current_price - low52) / (high52 - low52)) * 100 if high52 > low52 else 50.0
         flow_score = min(100.0, 40.0 + (frgn_rate * 1.5))
         vcp_score = max(0.0, 100.0 - (((high52 - current_price) / high52) * 100)) if high52 > 0 else 50.0
