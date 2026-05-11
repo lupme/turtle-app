@@ -2,41 +2,33 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import json, time
+import json, requests, time
 from bs4 import BeautifulSoup
 import quant_analyzer
-import requests
 import altair as alt
 
-# [완전히 새로운 무기] 구글 공식 AI 통신 라이브러리
-import google.generativeai as genai
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3 (Mobile)", layout="wide", initial_sidebar_state="expanded")
-
-# --- 📱 모바일 반응형 CSS (오리지널 유지) ---
+# --- CSS (오리지널 유지 + 모바일 최적화) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
-    
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; gap: 8px 0; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 2px; }
     .index-val { font-size: 1.05rem; font-weight: 800; color: #ffffff; }
     .index-diff { font-size: 0.75rem; font-weight: 600; }
-    
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    .kpi-box { display: flex; flex-direction: column; background: #0f172a; padding: 15px; border-radius: 10px; border: 1px solid #1e293b; }
+    .kpi-box { display: flex; flex-direction: column; }
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
     .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
-    
     .text-blue { color: rgb(70,130,180) !important; }
-    .text-red { color: #ef4444 !important; }
+    .text-red { color: #fca5a5 !important; } /* 소프트 레드 적용 */
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
-    
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
@@ -45,7 +37,7 @@ st.markdown("""
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
+    .dot-red { background-color: #fca5a5; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
     .stock-name { font-size: 1rem; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
@@ -65,7 +57,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Data Load (오리지널 유지) ---
+# --- Data Load ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -121,64 +113,45 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 🚀 [아예 다른 방식] 전용 SDK 통신망 ---
+# --- 구형 주소(gemini-pro) 우회 통신망 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
+    pf_summary = []
+    for _, r in portfolio_df.iterrows():
+        if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
+        code = str(r['종목코드'])
+        tcr = tcr_results.get(code, {}).get('score', 0)
+        pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
+    
+    cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
+    
+    prompt = f"참모 브리핑 요망.\n[지표]: {indices}\n[현황]: 현금 {cash}원\n{chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍시황요약, 🎯진단, 🔥작전지시"
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    # 사령관님의 키가 1.5 버전을 막고 있으므로, 가장 구형인 기본 모델로 우회 시도합니다.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key.strip()}"
+    
     try:
-        pf_summary = []
-        for _, r in portfolio_df.iterrows():
-            if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
-            code = str(r['종목코드'])
-            tcr = tcr_results.get(code, {}).get('score', 0)
-            pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
-        
-        cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
-        
-        prompt = f"""
-        당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다. 사령관을 위해 작전 지시서를 작성하십시오.
-        
-        [지표]: {indices}
-        [현황]: 현금 {cash:,.0f}원
-        {chr(10).join(pf_summary)}
-        [지시]: {user_context}
-        
-        1. 🌍 시황 요약
-        2. 🎯 포트폴리오 진단
-        3. 🔥 작전 지시 (명확한 매도/매수 종목 추천)
-        """
-        
-        # 1. API 키 세팅 (주소를 만들지 않고 라이브러리에 키만 넘겨줍니다)
-        genai.configure(api_key=api_key.strip())
-        
-        # 2. 모델 직접 소환 (서버 주소 문제 원천 차단)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        # 3. 답변 생성
-        response = model.generate_content(prompt)
-        
-        return response.text
-        
+        res = requests.post(url, headers=headers, json=data, timeout=30)
+        if res.status_code == 200:
+            return res.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return f"🚨 API 권한 거절 (코드: {res.status_code})\n\n사령관님, 구글 AI Studio에 접속하셔서 **새로운 API 키를 발급**받으셔야만 통신망이 열립니다. 현재 키는 모델 접근 권한이 없습니다."
     except Exception as e:
-        return f"🚨 전용 통신망(SDK) 구축 후에도 에러가 발생했습니다: {str(e)}\n\n사령관님, 이 에러는 구글 클라우드 콘솔에서 API 키 자체의 결제/권한 설정 문제일 확률이 매우 높습니다."
+        return f"🚨 통신 에러: {str(e)}"
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3 (Mobile + SDK)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3 (Original Base)</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
-        with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.3 (모바일 최적화 + SDK 통신판)`")
-            st.markdown("**패치 내역:**\n- `google-generativeai` 라이브러리 전면 교체 (404 원천 차단)")
+        if st.button("🔄 실시간 시세 업데이트"): st.cache_data.clear(); st.rerun()
         st.divider()
-        
         st.markdown("**🤖 AI 참모 통신 채널**")
-        api_key = st.text_input("Gemini API Key 입력 (1회용)", type="password")
-        st.divider()
-        
-        if st.button("🔄 실시간 시세 수동 업데이트"):
-            st.cache_data.clear(); st.rerun()
+        api_key = st.text_input("Gemini API Key 입력", type="password")
         st.divider()
         
         sort_option = st.radio("📊 리스트 정렬 기준", ["수익률 순", "당일 등락 순", "종목명 순"], horizontal=True)
@@ -188,7 +161,7 @@ try:
 
         mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
         acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
-        sel_acc_str = st.selectbox("명령 하달 대상 계좌", acc_opts) if acc_opts else ""
+        sel_acc_str = st.selectbox("대상 계좌", acc_opts) if acc_opts else ""
         sel_acc = sel_acc_str.split('[')[-1].replace(']', '').strip() if sel_acc_str else ""
         
         if "신규" not in mode:
@@ -196,7 +169,7 @@ try:
             s_name = st.selectbox("작전 종목 선택", s_list if s_list else ["없음"])
             if "매매" in mode: action = st.radio("구분", ["매수", "매도"], horizontal=True)
         else:
-            s_name, s_code = st.text_input("신규 종목명"), st.text_input("종목코드 (6자리)")
+            s_name, s_code = st.text_input("신규 종목명"), st.text_input("종목코드")
             
         if "삭제" not in mode:
             qty, price = st.number_input("수량", min_value=0, value=None, step=1), st.number_input("현재가/단가", min_value=0, value=None, step=100)
@@ -214,35 +187,35 @@ try:
     with st.spinner("🚀 T-Q 엔진 데이터 수집 중..."):
         tcr_results = quant_analyzer.get_tcr_scores_batch(stock_fetch_list, {"flow": 0.4, "trend": 0.4, "vcp": 0.2})
 
-    tab_main, tab_analysis, tab_ai = st.tabs(["🚀 기동 관제실", "🔬 전술 분석실(서술형)", "🤖 AI 브리핑"])
+    tab_main, tab_analysis, tab_ai = st.tabs(["🚀 기동 관제실", "🔬 심층 분석실", "🤖 AI 브리핑"])
 
     with tab_main:
         if indices:
             idx_html = '<div class="index-container">'
             for name in ["KOSPI", "NASDAQ", "S&P 500", "USD/KRW"]:
                 val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
-                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
+                tri = diff[0] if diff and diff[0] in ['▲', '▼'] else ''
+                rest = diff[1:] if tri else diff
+                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val text-white">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span class="text-white">{rest}</span></span></div>'
             idx_html += '</div>'
             st.markdown(idx_html, unsafe_allow_html=True)
             
-            with st.expander("🌍 거시경제 및 보조 지표 (VIX, 유가, 미 국채)"):
-                macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
-                for name in ["VIX", "WTI (유가)", "US 10Y (미 국채)"]:
-                    val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
-                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
-                macro_html += '</div>'
-                st.markdown(macro_html, unsafe_allow_html=True)
-
         total_eval = display_df['평가금액'].sum()
         total_profit = display_df['평가손익'].sum()
         total_roi = (total_profit / display_df['매수금액'].sum() * 100) if display_df['매수금액'].sum() > 0 else 0
         daily_delta = sum((get_safe_val(r,['현재가2','현재가','기준가','매수단가']) - get_safe_val(r,['전일종가2','전일종가'])) * r.get('잔고수량',0) for _,r in display_df.iterrows() if get_safe_val(r,['전일종가2','전일종가']) > 0)
         total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
 
+        profit_tri = '▲' if total_profit > 0 else '▼' if total_profit < 0 else ''
+        profit_cl = 'text-red' if total_profit > 0 else 'text-blue' if total_profit < 0 else 'text-gray'
+        
+        delta_tri = '▲' if daily_delta > 0 else '▼' if daily_delta < 0 else ''
+        delta_cl = 'text-red' if daily_delta > 0 else 'text-blue' if daily_delta < 0 else 'text-gray'
+
         st.markdown(f"""<div class="kpi-grid">
             <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}</span></div>
-            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f} <span class="kpi-delta">({total_roi:.2f}%)</span></span></div>
-            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{'▲' if daily_delta>0 else '▼' if daily_delta<0 else ''}{abs(daily_delta):,.0f}</span></div>
+            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val"><span class="{profit_cl}">{profit_tri}</span><span class="text-white">{abs(total_profit):,.0f}</span> <span class="kpi-delta text-white">({total_roi:.2f}%)</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val"><span class="{delta_cl}">{delta_tri}</span><span class="text-white">{abs(daily_delta):,.0f}</span></span></div>
             <div class="kpi-box"><span class="kpi-label">기동 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}</span></div>
         </div>""", unsafe_allow_html=True)
 
@@ -276,68 +249,63 @@ try:
             else:
                 tcr_info = tcr_results.get(code, {"score": 0, "status": "확인 불가", "color": "text-gray"})
             
-            cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
             dt = "dot-red" if y_val > 0 else "dot-blue" if y_val < 0 else "dot-gray"
-            ds = f"<span class='{'text-red' if diff>0 else 'text-blue' if diff<0 else 'text-gray'}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f}({rate:.1f}%)</span>"
+            
+            diff_tri = '▲' if diff > 0 else '▼' if diff < 0 else ''
+            diff_cl = 'text-red' if diff > 0 else 'text-blue' if diff < 0 else 'text-gray'
+            ds = f"<span class='{diff_cl}'>{diff_tri}</span><span class='text-white'>{abs(diff):,.0f}({rate:.1f}%)</span>"
+            
+            y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
+            y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
+            ys = f"<span class='{y_cl}'>{y_tri}</span><span class='text-white'>{abs(y_val)*100:.2f}%</span>"
             
             html_cards += f"""
             <details class="premium-card">
                 <summary><div class="card-header-flex">
                     <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name" title="{row['종목명']}">{row['종목명']}</span></div>
                     <div class="card-right">
-                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num {cl}">{now_p:,.0f}</span></div>
+                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num text-white">{now_p:,.0f}</span></div>
                         <div class="val-box"><span class="val-label">당일비</span><span class="val-num">{ds}</span></div>
-                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num {cl}">{y_val*100:.2f}%</span></div>
+                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num">{ys}</span></div>
                     </div>
                 </div></summary>
                 <div class="card-body">
                     <div class="metric-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; background:#020617; padding:15px; border-radius:0 0 10px 10px; border-top:1px solid #1e293b;">
                         <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">평가 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:rgb(70,130,180);">{row['평가금액']:,.0f}</div></div>
                         <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">🔥 확신율 (TCR)</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:{tcr_info.get('color', 'text-gray')};">{tcr_info.get('score', 0)}%</div></div>
-                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['매수금액']:,.0f}</div></div>
-                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">보유 수량</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['잔고수량']:,.0f}</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:#ffffff;">{row['매수금액']:,.0f}</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">보유 수량</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:#ffffff;">{row['잔고수량']:,.0f}</div></div>
                     </div>
                 </div>
             </details>"""
         st.markdown(html_cards, unsafe_allow_html=True)
 
-    # --- 📝 모바일 최적화 서술형 분석실 ---
+    # --- 📊 [복원 및 최적화] 모바일 터치 대응 사분면 차트 ---
     with tab_analysis:
-        st.subheader("📝 전술 상태 분류 (서술형 보고)")
-        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>모바일 환경에 맞춰 종목들을 4가지 상태로 분류하여 직관적으로 보고합니다.</p>", unsafe_allow_html=True)
+        st.subheader("📊 1. 전술 사분면 (Deep Analysis)")
+        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>모바일에서도 터치하여 종목 정보를 확인할 수 있습니다.</p>", unsafe_allow_html=True)
         
-        q1, q2, q3, q4 = [], [], [], []
-        for _, row in df_stock.iterrows():
-            code = str(row.get('종목코드', ''))
-            tcr = tcr_results.get(code, {}).get('score', 0)
-            ret = row['안전_수익률'] * 100
-            item = f"**{row['종목명']}** (수익: {ret:+.2f}% / TCR: {tcr}점)"
-            
-            if ret >= 0 and tcr >= 50: q1.append(item)
-            elif ret < 0 and tcr >= 50: q2.append(item)
-            elif ret >= 0 and tcr < 50: q3.append(item)
-            else: q4.append(item)
-            
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("### 🟢 [1사분면] 주력 홀딩")
-            st.info("수익 발생 & AI 확신율 높음\n\n" + ("\n".join([f"- {x}" for x in q1]) if q1 else "- 해당 종목 없음"))
-            st.markdown("### 🟡 [3사분면] 익절 경계")
-            st.warning("수익 발생 but AI 확신율 낮음\n\n" + ("\n".join([f"- {x}" for x in q3]) if q3 else "- 해당 종목 없음"))
-        with col2:
-            st.markdown("### 🔵 [2사분면] 물타기 대기")
-            st.info("손실 발생 but AI 확신율 높음\n\n" + ("\n".join([f"- {x}" for x in q2]) if q2 else "- 해당 종목 없음"))
-            st.markdown("### 🔴 [4사분면] 손절 고려")
-            st.error("손실 발생 & AI 확신율 낮음\n\n" + ("\n".join([f"- {x}" for x in q4]) if q4 else "- 해당 종목 없음"))
+        plot_df = display_df[~display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)].copy()
+        plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
+        plot_df['표시수익률'] = plot_df['안전_수익률'] * 100
+        
+        # 모바일 시인성을 위해 원(size) 크기 증가 및 축 글씨 확대
+        base_chart = alt.Chart(plot_df).mark_circle(size=250).encode(
+            x=alt.X('TCR점수:Q', scale=alt.Scale(domain=[0, 100]), title='TCR 확신율 (0~100)', axis=alt.Axis(labelFontSize=12, titleFontSize=14)),
+            y=alt.Y('표시수익률:Q', title='현재 수익률 (%)', axis=alt.Axis(labelFontSize=12, titleFontSize=14)),
+            color=alt.Color('TCR점수:Q', scale=alt.Scale(range=['rgb(70,130,180)', '#fca5a5'], domain=[0, 100]), legend=None),
+            tooltip=['종목명', 'TCR점수', '표시수익률', '평가금액']
+        ).interactive()
+        st.altair_chart(base_chart, use_container_width=True)
 
     with tab_ai:
         st.subheader("🤖 제미나이 전술 참모")
-        user_context = st.text_area("📡 사령관 지시사항", placeholder="예: 삼성전자 악재 뉴스가 떴는데 비중을 줄일까?")
+        user_context = st.text_area("📡 사령관 지시사항", placeholder="이슈 및 뉴스를 입력하세요.")
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not api_key:
                 st.error("사이드바에 API Key를 입력하십시오.")
             else:
-                with st.spinner("🧠 전용 SDK 통신망 가동 중... (안정화 대기)"):
+                with st.spinner("🧠 구형 통신망 우회 가동 중..."):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
                     st.markdown(f"<div style='background:#0f172a; padding:15px; border-radius:10px; border:1px solid #1e293b; font-size:0.95rem; line-height:1.6;'>{ai_report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
