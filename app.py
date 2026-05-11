@@ -6,6 +6,8 @@ import json, requests, time
 from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
+
+# [통신망 복구] 구글 공식 AI 통신 라이브러리 재탑재
 import google.generativeai as genai
 
 st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.5", layout="wide", initial_sidebar_state="expanded")
@@ -13,7 +15,7 @@ st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.5", layout="w
 if "gemini_api_key" not in st.session_state:
     st.session_state["gemini_api_key"] = st.secrets.get("gemini_api_key", "")
 
-# --- CSS (오리지널 유지 및 가독성 최적화) ---
+# --- CSS (얇고 깔끔한 오리지널 노말 디자인) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -29,10 +31,13 @@ st.markdown("""
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 400; margin-bottom: 4px; }
     .kpi-val { font-size: 1.5rem; font-weight: 400; color: #ffffff; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 400; margin-left: 6px; }
-    .text-blue { color: #3b82f6 !important; }
+    
+    /* 규격 엄수: 개선 후 Steel Blue(70,130,180), 개선 전 Slate Gray(108,122,137) */
+    .text-blue { color: rgb(70,130,180) !important; }
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
+    
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
@@ -41,11 +46,13 @@ st.markdown("""
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background-color: #ef4444; } .dot-blue { background-color: #3b82f6; } .dot-gray { background-color: rgb(108,122,137); }
+    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
+    
     .stock-name { font-size: 0.95rem; font-weight: 400; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 400; margin-bottom: 2px; }
     .val-num { font-size: 0.95rem; font-weight: 400; color: #ffffff; }
+    
     @media (max-width: 768px) {
         .index-item { width: 48%; margin-bottom: 10px; }
         .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
@@ -54,6 +61,7 @@ st.markdown("""
         .card-right { width: 100%; border-top: 1px dashed #1e293b; padding-top: 10px; }
         .kpi-val { font-size: 1.2rem; }
     }
+    
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 400; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
     .stButton>button:hover { border-color: rgb(70,130,180); color: rgb(70,130,180); }
     </style>
@@ -65,7 +73,8 @@ def get_gspread_client():
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
     return gspread.authorize(Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']))
 
-@st.cache_data(ttl=60)
+# [조치] 모바일 데이터 낭비 방지: 자동 갱신 시간(TTL)을 1시간(3600초)으로 연장
+@st.cache_data(ttl=3600)
 def load_data():
     client = get_gspread_client()
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
@@ -79,8 +88,8 @@ def load_data():
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액|총자산', na=False)]
     return sheet, df, full_df
 
-# [수정] 스크래퍼 봇 차단 우회를 위한 강력한 User-Agent 장착
-@st.cache_data(ttl=120)
+# [조치] 봇 차단 회피: 강력한 크롬 브라우저 헤더 장착
+@st.cache_data(ttl=3600)
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray"), "WTI (유가)": ("-", "-", "text-gray"), "US 10Y (미 국채)": ("-", "-", "text-gray")}
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
@@ -124,14 +133,14 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- [수정] 난잡한 텍스트를 막기 위한 마크다운 강제 규격 프롬프트 ---
+# --- [조치] 전용 SDK 통신망 복구 및 브리핑 포맷 정밀화 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     pf_summary = []
     for _, r in portfolio_df.iterrows():
         if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
         code = str(r['종목코드'])
         tcr = tcr_results.get(code, {}).get('score', 0)
-        pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR {tcr}점")
+        pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
     
     cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
     
@@ -139,7 +148,7 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
     당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다.
     데이터: [지표] {indices} / [현금] {cash:,.0f}원 / [종목] {chr(10).join(pf_summary)} / [지시] {user_context}
     
-    반드시 다음 양식을 엄격하게 지켜서 출력하십시오. (서론, 인사말, 결론 절대 금지. 마크다운 문법 유지)
+    반드시 다음 양식을 엄격하게 지켜서 출력하십시오. (서론, 인사말 절대 금지. 마크다운 문법 유지)
 
     ### 🌍 거시 환경 및 시장 방향성
     - (핵심 요약 1)
@@ -155,35 +164,13 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
     - 🟡 **현금 비중 조절**: ...
     """
     
-    clean_key = api_key.strip()
     try:
-        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={clean_key}"
-        list_res = requests.get(list_url, timeout=10)
-        
-        if list_res.status_code != 200: return f"🚨 API 키 인증 거절 (코드: {list_res.status_code})"
-            
-        models_data = list_res.json().get('models', [])
-        target_model = None
-        for m in models_data:
-            if 'generateContent' in m.get('supportedGenerationMethods', []):
-                if 'flash' in m.get('name', '').lower():
-                    target_model = m['name']; break
-        if not target_model:
-            for m in models_data:
-                if 'generateContent' in m.get('supportedGenerationMethods', []):
-                    target_model = m['name']; break
-        if not target_model: return "🚨 통신 불가: 텍스트 생성 모델 권한 없음."
-            
-        url = f"https://generativelanguage.googleapis.com/v1beta/{target_model}:generateContent?key={clean_key}"
-        headers = {'Content-Type': 'application/json'}
-        data = {"contents": [{"parts": [{"text": prompt}]}]}
-        res = requests.post(url, headers=headers, json=data, timeout=30)
-        
-        if res.status_code == 200:
-            return res.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"🚨 모델 통신 거절 (코드: {res.status_code})"
-    except Exception as e: return f"🚨 시스템 에러: {str(e)}"
+        genai.configure(api_key=api_key.strip())
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"🚨 전용 통신망 에러: {str(e)}\n\n사령관님, 구글 API 키 권한 또는 인터넷 연결 상태를 확인해 주십시오."
 
 # --- Main App ---
 try:
@@ -318,6 +305,7 @@ try:
             y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
             y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
             
+            # [원복] 수익률 정상 수식
             ys = f"<span class='{y_cl}'>{y_tri}</span> <span class='text-white'>{abs(y_val)*100 if -1<y_val<1 else abs(y_val):.2f}%</span>"
             
             html_cards += f"""
@@ -358,22 +346,19 @@ try:
         st.altair_chart(base_chart, use_container_width=True)
 
     with tab_ai:
-        st.subheader("🤖 퀀터멘털 전술 참모 (Phase 1)")
-        st.markdown("<p style='font-size:0.9rem; color:#94a3b8;'>※ 본 시스템은 기초 데이터 구문 분석 모듈입니다. 향후 외부 금융 API 및 몬테카를로 엔진(Phase 2,3) 탑재 시, '최종 목표 50% 달성'을 위한 고도화된 스윙 전략이 제공될 예정입니다.</p>", unsafe_allow_html=True)
-        
+        st.subheader("🤖 퀀터멘털 전술 참모")
         user_context = st.text_area("📡 사령관 지시사항", placeholder="이슈 및 뉴스를 입력하세요.")
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not st.session_state["gemini_api_key"]:
                 st.error("사이드바에 API Key를 1회 입력하십시오.")
             else:
-                with st.spinner("🧠 구글 본사 모델 스캔 및 통신 중..."):
+                with st.spinner("🧠 전용 SDK 통신망 가동 중..."):
                     ai_report = generate_ai_briefing(st.session_state["gemini_api_key"], display_df, tcr_results, indices, user_context)
                     
                     if "에러" in ai_report or "실패" in ai_report or "거절" in ai_report:
                         st.error(ai_report)
                     else:
                         st.success("✅ 작전 지시서 수신 완료")
-                        # [수정] 껍데기를 치우고, 마크다운 렌더링이 100% 작동하도록 순수 출력
                         st.markdown("---")
                         st.markdown(ai_report)
                         st.markdown("---")
