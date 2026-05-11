@@ -13,7 +13,7 @@ st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.5", layout="w
 if "gemini_api_key" not in st.session_state:
     st.session_state["gemini_api_key"] = st.secrets.get("gemini_api_key", "")
 
-# --- CSS (사령관님 지정: 얇은 흰색, 오리지널 원색, 겹침 방지) ---
+# --- CSS (사령관님 지정: 얇은 폰트, 흰색 텍스트, 기호 원색) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -64,13 +64,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Data Load (자동 업데이트 해제: ttl 3600 적용) ---
+# --- Data Load (자동 갱신 완전 삭제) ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
     return gspread.authorize(Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']))
 
-@st.cache_data(ttl=3600)
+@st.cache_data
 def load_data():
     client = get_gspread_client()
     sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1SLobWRlOvwyj8zwp6O3SHU5rX4aJsVxknrCR6qd6U0k/edit#gid=0").get_worksheet(0)
@@ -84,8 +84,8 @@ def load_data():
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액|총자산', na=False)]
     return sheet, df, full_df
 
-# --- [완벽 원복] 거시경제 로직 V0.5.3 오리지널 100% 복구 ---
-@st.cache_data(ttl=3600)
+# --- [복원] 100% 정상 작동했던 V0.5.3 오리지널 거시경제 로직 ---
+@st.cache_data
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray"), "WTI (유가)": ("-", "-", "text-gray"), "US 10Y (미 국채)": ("-", "-", "text-gray")}
     try:
@@ -128,51 +128,59 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- [완벽 원복] 통신 로직 다중우회 제거, 오리지널 단일 통신 복구 ---
+# --- [복원] 사령관님이 성공하셨던 '3중 주소 연속 타격' 방식 완벽 복구 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
-    try:
-        pf_summary = []
-        for _, r in portfolio_df.iterrows():
-            if "현금" in str(r['종목명']) or "예수금" in str(r['종목명']): continue
-            code = str(r['종목코드'])
-            tcr = tcr_results.get(code, {}).get('score', 0)
-            pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
-        
-        cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
-        
-        prompt = f"""
-        당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다.
-        데이터: [지표] {indices} / [현금] {cash:,.0f}원 / [종목] {chr(10).join(pf_summary)} / [지시] {user_context}
-        
-        반드시 다음 양식을 지켜서 요약 보고하십시오. (서론 절대 생략, 마크다운 유지)
+    pf_summary = []
+    for _, r in portfolio_df.iterrows():
+        if "현금" in str(r['종목명']) or "예수금" in str(r['종목명']): continue
+        code = str(r['종목코드'])
+        tcr = tcr_results.get(code, {}).get('score', 0)
+        pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
+    
+    cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
+    
+    prompt = f"""
+    당신은 월스트리트 최고의 퀀터멘털 투자 참모입니다.
+    데이터: [지표] {indices} / [현금] {cash:,.0f}원 / [종목] {chr(10).join(pf_summary)} / [지시] {user_context}
+    
+    반드시 아래 마크다운 양식을 지켜서 요약 보고하십시오. (서론 절대 생략)
 
-        ### 🌍 거시 환경
-        - (핵심 요약)
+    ### 🌍 거시 환경
+    - (시장 방향성 1줄 요약)
 
-        ### 🎯 진단
-        - (강/약점 1줄 요약)
+    ### 🎯 진단
+    - (포트폴리오 강/약점 1줄 요약)
 
-        ### 🔥 작전 지시
-        - 🔴 매도 검토: [종목명] (사유)
-        - 🟢 추가 매수: [종목명] (사유)
-        - 🟡 현금 비중: (조언)
-        """
-        
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key.strip()}"
-        headers = {'Content-Type': 'application/json'}
-        data = {"contents": [{"parts": [{"text": prompt}]}]}
-        
-        response = requests.post(url, headers=headers, json=data, timeout=30)
-        response.raise_for_status()
-        
-        result_json = response.json()
-        if 'candidates' in result_json and len(result_json['candidates']) > 0:
-            return result_json['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return "AI 참모 통신 오류: 응답을 해석할 수 없습니다."
+    ### 🔥 작전 지시
+    - 🔴 매도 검토: [종목명] (사유)
+    - 🟢 추가 매수: [종목명] (사유)
+    - 🟡 현금 비중: (조언)
+    """
+    
+    clean_key = api_key.strip()
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    endpoints = [
+        "v1/models/gemini-1.5-flash",
+        "v1beta/models/gemini-1.5-flash",
+        "v1beta/models/gemini-pro"
+    ]
+    
+    last_err = ""
+    for ep in endpoints:
+        try:
+            url = f"https://generativelanguage.googleapis.com/{ep}:generateContent?key={clean_key}"
+            res = requests.post(url, headers=headers, json=data, timeout=20)
+            if res.status_code == 200:
+                return res.json()['candidates'][0]['content']['parts'][0]['text']
+            else:
+                last_err = f"{ep.split('/')[-1]} 거절({res.status_code})"
+        except Exception as e:
+            last_err = f"통신지연"
+            continue
             
-    except Exception as e:
-        return f"AI 참모 통신 실패: {str(e)}\n(API 키를 새로 발급받았는지 확인해 주십시오.)"
+    return f"🚨 모든 통신망 우회 실패. (최근 에러: {last_err})\n\n사령관님, 구글 API 키의 권한이 만료되었거나 차단되었습니다. 구글 AI Studio에서 새로 발급받아 주십시오."
 
 # --- Main App ---
 try:
@@ -239,6 +247,7 @@ try:
             idx_html += '</div>'
             st.markdown(idx_html, unsafe_allow_html=True)
             
+            # [복원] 사령관님을 분노케 했던 누락된 거시경제 패널, 오리지널 그대로 복구
             with st.expander("🌍 거시경제 및 보조 지표 (VIX, 유가, 미 국채)", expanded=True):
                 macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
                 for name in ["VIX", "WTI (유가)", "US 10Y (미 국채)"]:
@@ -332,7 +341,7 @@ try:
 
     with tab_analysis:
         st.subheader("📊 전술 사분면 (Deep Analysis)")
-        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>※ 본 차트는 함대 전체 밸런스 점검용 시각화 보조 도구입니다. 세부 타격 지점 설정은 AI 브리핑을 활용하십시오.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>본 차트는 함대 전체 밸런스 점검용 시각화 보조 도구입니다.</p>", unsafe_allow_html=True)
         
         plot_df = display_df[~display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)].copy()
         plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
@@ -347,19 +356,20 @@ try:
         st.altair_chart(base_chart, use_container_width=True)
 
     with tab_ai:
-        st.subheader("🤖 제미나이 전술 참모 본부")
+        st.subheader("🤖 제미나이 퀀터멘털 참모 (Phase 1)")
         user_context = st.text_area("📡 사령관 지시사항", placeholder="이슈 및 뉴스를 입력하세요.")
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not st.session_state["gemini_api_key"]:
                 st.error("사이드바에 API Key를 1회 입력하십시오.")
             else:
-                with st.spinner("🧠 오리지널 통신망 가동 중..."):
+                with st.spinner("🧠 오리지널 통신망(3중 타격) 가동 중..."):
                     ai_report = generate_ai_briefing(st.session_state["gemini_api_key"], display_df, tcr_results, indices, user_context)
                     
                     if "에러" in ai_report or "실패" in ai_report or "거절" in ai_report:
                         st.error(ai_report)
                     else:
                         st.success("✅ 작전 지시서 수신 완료")
+                        # [복구] 가독성을 해치던 HTML 박스를 버리고, 마크다운 그대로 깔끔하게 출력
                         st.markdown("---")
                         st.markdown(ai_report)
                         st.markdown("---")
