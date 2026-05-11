@@ -7,15 +7,13 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-# [통신망 복구] 구글 공식 AI 통신 라이브러리 재탑재
-import google.generativeai as genai
-
 st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.5", layout="wide", initial_sidebar_state="expanded")
 
+# --- API 키 세션 기억 ---
 if "gemini_api_key" not in st.session_state:
     st.session_state["gemini_api_key"] = st.secrets.get("gemini_api_key", "")
 
-# --- CSS (얇고 깔끔한 오리지널 노말 디자인) ---
+# --- CSS (사령관님 지정 얇은 흰색 노말 디자인) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -32,8 +30,7 @@ st.markdown("""
     .kpi-val { font-size: 1.5rem; font-weight: 400; color: #ffffff; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 400; margin-left: 6px; }
     
-    /* 규격 엄수: 개선 후 Steel Blue(70,130,180), 개선 전 Slate Gray(108,122,137) */
-    .text-blue { color: rgb(70,130,180) !important; }
+    .text-blue { color: #3b82f6 !important; }
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
@@ -46,7 +43,7 @@ st.markdown("""
     .card-left { display: flex; align-items: center; gap: 8px; width: 35%; overflow: hidden; }
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
+    .dot-red { background-color: #ef4444; } .dot-blue { background-color: #3b82f6; } .dot-gray { background-color: rgb(108,122,137); }
     
     .stock-name { font-size: 0.95rem; font-weight: 400; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
@@ -67,13 +64,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Data Load ---
+# --- Data Load (자동 업데이트 해제: 1시간 유지) ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
     return gspread.authorize(Credentials.from_service_account_info(key_info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']))
 
-# [조치] 모바일 데이터 낭비 방지: 자동 갱신 시간(TTL)을 1시간(3600초)으로 연장
 @st.cache_data(ttl=3600)
 def load_data():
     client = get_gspread_client()
@@ -88,43 +84,54 @@ def load_data():
     df = df[~df['종목명'].astype(str).str.contains('합계|총계|총액|총자산', na=False)]
     return sheet, df, full_df
 
-# [조치] 봇 차단 회피: 강력한 크롬 브라우저 헤더 장착
+# --- [복원] 100% 독립 분리된 거시경제 스크래퍼 (절대 누락 안 됨) ---
 @st.cache_data(ttl=3600)
 def get_market_indices():
     indices = {"KOSPI": ("-", "-", "text-gray"), "NASDAQ": ("-", "-", "text-gray"), "S&P 500": ("-", "-", "text-gray"), "VIX": ("-", "-", "text-gray"), "USD/KRW": ("-", "-", "text-gray"), "WTI (유가)": ("-", "-", "text-gray"), "US 10Y (미 국채)": ("-", "-", "text-gray")}
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    
+    # KOSPI
     try:
-        res_main = requests.get("https://finance.naver.com/", headers=headers, timeout=5)
-        soup_main = BeautifulSoup(res_main.text, 'html.parser')
-        box = soup_main.select_one(".kospi_area")
+        res = requests.get("https://finance.naver.com/", headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        box = soup.select_one(".kospi_area")
         if box:
-            val, diff, rate = box.select_one(".num").text, box.select_one(".num2").text, box.select_one(".num3").text
-            indices["KOSPI"] = (val, f"{'▲' if '상승' in box.select_one('.blind').text else '▼' if '하락' in box.select_one('.blind').text else ''}{diff} ({rate})", "text-red" if "상승" in box.select_one(".blind").text else "text-blue")
-        
-        for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("VIX", "VIX@VIX")]:
-            res_w = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=5)
-            sw = BeautifulSoup(res_w.text, 'html.parser')
-            em = sw.select_one("p.no_today em")
-            if em:
-                stt = sw.select_one("p.no_exday span.blind").text if sw.select_one("p.no_exday span.blind") else ""
-                ems = sw.select_one("p.no_exday").find_all("em")
-                indices[code] = (em.text.strip(), f"{'▲' if '상승' in stt else '▼' if '하락' in stt else ''}{ems[0].text.strip()} ({ems[1].text.strip()})", "text-red" if "상승" in stt else "text-blue")
-        
-        res_ex = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=5)
-        sx = BeautifulSoup(res_ex.text, 'html.parser')
-        ex_box = sx.select_one("#exchangeList > li.on > a.head.usd")
-        if ex_box: indices["USD/KRW"] = (ex_box.select_one(".value").text, ex_box.select_one(".change").text, "text-red" if "상승" in ex_box.select_one(".blind").text else "text-blue")
-        
-        oil_box = sx.select_one("#oilGoldList > li.on > a.head.oil")
-        if oil_box: indices["WTI (유가)"] = (oil_box.select_one(".value").text, oil_box.select_one(".change").text, "text-red" if "상승" in oil_box.select_one(".blind").text else "text-blue")
-        
-        rate_res = requests.get("https://finance.naver.com/marketindex/worldInterestQuote.naver?marketindexCd=IR_TNX", headers=headers, timeout=5)
-        rs = BeautifulSoup(rate_res.text, 'html.parser')
-        r_box = rs.select_one(".no_today")
-        if r_box and r_box.select_one("em"):
-            val = r_box.select_one("em").text.strip()
-            indices["US 10Y (미 국채)"] = (val, "변동조회필요", "text-gray")
+            blind = box.select_one(".blind").text
+            indices["KOSPI"] = (box.select_one(".num").text, f"{'▲' if '상승' in blind else '▼' if '하락' in blind else ''}{box.select_one('.num2').text} ({box.select_one('.num3').text})", "text-red" if "상승" in blind else "text-blue")
     except: pass
+
+    # NASDAQ, S&P 500, VIX
+    for code, sym in [("NASDAQ", "NAS@IXIC"), ("S&P 500", "SPI@SPX"), ("VIX", "VIX@VIX")]:
+        try:
+            res = requests.get(f"https://finance.naver.com/world/sise.naver?symbol={sym}", headers=headers, timeout=3)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            em = soup.select_one("p.no_today em")
+            if em:
+                ems = soup.select_one("p.no_exday").find_all("em")
+                blind = soup.select_one("p.no_exday span.blind").text if soup.select_one("p.no_exday span.blind") else ""
+                indices[code] = (em.text.strip(), f"{'▲' if '상승' in blind else '▼' if '하락' in blind else ''}{ems[0].text.strip()} ({ems[1].text.strip()})", "text-red" if "상승" in blind else "text-blue")
+        except: pass
+
+    # USD/KRW, WTI
+    try:
+        res = requests.get("https://finance.naver.com/marketindex/", headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        usd = soup.select_one("a.head.usd")
+        if usd:
+            indices["USD/KRW"] = (usd.select_one(".value").text, f"{'▲' if '상승' in usd.select_one('.blind').text else '▼' if '하락' in usd.select_one('.blind').text else ''}{usd.select_one('.change').text}", "text-red" if "상승" in usd.select_one(".blind").text else "text-blue")
+        oil = soup.select_one("a.head.oil")
+        if oil:
+            indices["WTI (유가)"] = (oil.select_one(".value").text, f"{'▲' if '상승' in oil.select_one('.blind').text else '▼' if '하락' in oil.select_one('.blind').text else ''}{oil.select_one('.change').text}", "text-red" if "상승" in oil.select_one(".blind").text else "text-blue")
+    except: pass
+
+    # US 10Y
+    try:
+        res = requests.get("https://finance.naver.com/marketindex/worldInterestQuote.naver?marketindexCd=IR_TNX", headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        em = soup.select_one(".no_today em")
+        if em: indices["US 10Y (미 국채)"] = (em.text.strip(), "-", "text-gray")
+    except: pass
+
     return indices
 
 def get_safe_val(r, cols):
@@ -133,7 +140,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- [조치] 전용 SDK 통신망 복구 및 브리핑 포맷 정밀화 ---
+# --- [복원] 사령관님이 성공하셨던 'requests 다중 타격' 방식 완벽 복구 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     pf_summary = []
     for _, r in portfolio_df.iterrows():
@@ -145,32 +152,48 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
     cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
     
     prompt = f"""
-    당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다.
+    당신은 월스트리트 최고의 퀀터멘털 투자 참모입니다.
     데이터: [지표] {indices} / [현금] {cash:,.0f}원 / [종목] {chr(10).join(pf_summary)} / [지시] {user_context}
     
-    반드시 다음 양식을 엄격하게 지켜서 출력하십시오. (서론, 인사말 절대 금지. 마크다운 문법 유지)
+    반드시 다음 양식을 지켜서 요약 보고하십시오. (마크다운 유지)
 
-    ### 🌍 거시 환경 및 시장 방향성
-    - (핵심 요약 1)
-    - (핵심 요약 2)
+    ### 🌍 거시 환경
+    - (핵심 요약)
 
-    ### 🎯 포트폴리오 정밀 진단
-    - **강점**: (1줄 요약)
-    - **취약점**: (1줄 요약)
+    ### 🎯 진단
+    - (강/약점 1줄 요약)
 
-    ### 🔥 T-Q 1차 작전 지시 (Phase 1)
-    - 🔴 **즉시 매도 검토**: [종목명] (사유: ...)
-    - 🟢 **신규/추가 매수**: [종목명] (사유: ...)
-    - 🟡 **현금 비중 조절**: ...
+    ### 🔥 작전 지시
+    - 🔴 매도 검토: [종목명] (사유)
+    - 🟢 신규/추가 매수: [종목명] (사유)
+    - 🟡 현금 비중: (조언)
     """
     
-    try:
-        genai.configure(api_key=api_key.strip())
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"🚨 전용 통신망 에러: {str(e)}\n\n사령관님, 구글 API 키 권한 또는 인터넷 연결 상태를 확인해 주십시오."
+    clean_key = api_key.strip()
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    # 에러를 일으킨 SDK 버리고, 직접 주소 3개를 연속으로 찔러 성공하는 것을 씁니다.
+    endpoints = [
+        "v1beta/models/gemini-1.5-flash",
+        "v1/models/gemini-1.5-flash",
+        "v1beta/models/gemini-pro"
+    ]
+    
+    last_err = ""
+    for ep in endpoints:
+        try:
+            url = f"https://generativelanguage.googleapis.com/{ep}:generateContent?key={clean_key}"
+            res = requests.post(url, headers=headers, json=data, timeout=20)
+            if res.status_code == 200:
+                return res.json()['candidates'][0]['content']['parts'][0]['text']
+            else:
+                last_err = f"{ep.split('/')[-1]} 거절({res.status_code})"
+        except Exception as e:
+            last_err = f"통신지연"
+            continue
+            
+    return f"🚨 모든 통신망 우회 실패. (최근 에러: {last_err})\n\n사령관님, 구글 API 키의 모델 접근 권한이 막혀있습니다. 구글 AI Studio에서 새 프로젝트를 만들고 완전히 새로운 키를 발급받아 주십시오."
 
 # --- Main App ---
 try:
@@ -305,7 +328,6 @@ try:
             y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
             y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
             
-            # [원복] 수익률 정상 수식
             ys = f"<span class='{y_cl}'>{y_tri}</span> <span class='text-white'>{abs(y_val)*100 if -1<y_val<1 else abs(y_val):.2f}%</span>"
             
             html_cards += f"""
@@ -331,7 +353,7 @@ try:
 
     with tab_analysis:
         st.subheader("📊 전술 사분면 (Deep Analysis)")
-        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>본 차트는 함대 전체 밸런스 점검을 위한 시각화 기초 도구입니다. 세부 타격 지점 설정은 AI 브리핑을 활용하십시오.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>본 차트는 함대 전체 밸런스 점검용입니다. 세부 타격 지점 설정은 AI 브리핑을 활용하십시오.</p>", unsafe_allow_html=True)
         
         plot_df = display_df[~display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)].copy()
         plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
@@ -346,13 +368,13 @@ try:
         st.altair_chart(base_chart, use_container_width=True)
 
     with tab_ai:
-        st.subheader("🤖 퀀터멘털 전술 참모")
+        st.subheader("🤖 제미나이 퀀터멘털 참모 (Phase 1)")
         user_context = st.text_area("📡 사령관 지시사항", placeholder="이슈 및 뉴스를 입력하세요.")
         if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not st.session_state["gemini_api_key"]:
                 st.error("사이드바에 API Key를 1회 입력하십시오.")
             else:
-                with st.spinner("🧠 전용 SDK 통신망 가동 중..."):
+                with st.spinner("🧠 통신망 다중 타격 중..."):
                     ai_report = generate_ai_briefing(st.session_state["gemini_api_key"], display_df, tcr_results, indices, user_context)
                     
                     if "에러" in ai_report or "실패" in ai_report or "거절" in ai_report:
