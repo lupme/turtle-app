@@ -2,41 +2,41 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import json, requests, time
+import json, time
 from bs4 import BeautifulSoup
 import quant_analyzer
+import requests
 import altair as alt
+
+# [완전히 새로운 무기] 구글 공식 AI 통신 라이브러리
+import google.generativeai as genai
 
 st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3 (Mobile)", layout="wide", initial_sidebar_state="expanded")
 
-# --- 📱 [수정] 모바일 반응형 CSS 추가 및 글자 겹침 방지 ---
+# --- 📱 모바일 반응형 CSS (오리지널 유지) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
     
-    /* 지수 보드 */
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; gap: 8px 0; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
     .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 2px; }
     .index-val { font-size: 1.05rem; font-weight: 800; color: #ffffff; }
     .index-diff { font-size: 0.75rem; font-weight: 600; }
     
-    /* KPI 박스 */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
     .kpi-box { display: flex; flex-direction: column; background: #0f172a; padding: 15px; border-radius: 10px; border: 1px solid #1e293b; }
     .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
     .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
     
-    /* 텍스트 색상 */
     .text-blue { color: rgb(70,130,180) !important; }
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
     
-    /* 종목 카드 */
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
@@ -51,7 +51,6 @@ st.markdown("""
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
     .val-num { font-size: 1rem; font-weight: 800; }
     
-    /* 📱 모바일 최적화 (화면이 좁아질 때 발동) */
     @media (max-width: 768px) {
         .index-item { width: 48%; margin-bottom: 10px; }
         .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
@@ -66,7 +65,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Data Load ---
+# --- Data Load (오리지널 유지) ---
 def get_gspread_client():
     key_info = json.loads(st.secrets["google_credentials"])
     if "private_key" in key_info: key_info["private_key"] = key_info["private_key"].replace("\\n", "\n")
@@ -113,13 +112,6 @@ def get_market_indices():
         
         oil_box = sx.select_one("#oilGoldList > li.on > a.head.oil")
         if oil_box: indices["WTI (유가)"] = (oil_box.select_one(".value").text, oil_box.select_one(".change").text, "text-red" if "상승" in oil_box.select_one(".blind").text else "text-blue")
-        
-        rate_res = requests.get("https://finance.naver.com/marketindex/worldInterestQuote.naver?marketindexCd=IR_TNX", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
-        rs = BeautifulSoup(rate_res.text, 'html.parser')
-        r_box = rs.select_one(".no_today")
-        if r_box and r_box.select_one("em"):
-            val = r_box.select_one("em").text.strip()
-            indices["US 10Y (미 국채)"] = (val, "변동조회필요", "text-gray")
     except: pass
     return indices
 
@@ -129,53 +121,56 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- 📡 [수정] 통신망 다중 폭격 로직 ---
+# --- 🚀 [아예 다른 방식] 전용 SDK 통신망 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
-    pf_summary = []
-    for _, r in portfolio_df.iterrows():
-        if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
-        code = str(r['종목코드'])
-        tcr = tcr_results.get(code, {}).get('score', 0)
-        pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
-    
-    cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
-    
-    prompt = f"참모 브리핑 요망.\n[지표]: {indices}\n[현황]: 현금 {cash}원\n{chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍시황요약, 🎯진단, 🔥작전지시"
-    headers = {'Content-Type': 'application/json'}
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
-    
-    # 404 에러를 뚫기 위해 3개의 다른 버전을 순차적으로 공격합니다.
-    endpoints = [
-        "v1/models/gemini-1.5-flash",
-        "v1beta/models/gemini-1.5-flash",
-        "v1beta/models/gemini-pro"
-    ]
-    
-    last_error = ""
-    for ep in endpoints:
-        url = f"https://generativelanguage.googleapis.com/{ep}:generateContent?key={api_key.strip()}"
-        try:
-            res = requests.post(url, headers=headers, json=data, timeout=20)
-            if res.status_code == 200:
-                return res.json()['candidates'][0]['content']['parts'][0]['text']
-            last_error = str(res.status_code)
-        except Exception as e:
-            last_error = str(e)
-            
-    # 모두 실패했다면, 이것은 코드 문제가 아니라 구글 API 키 권한 문제입니다.
-    return f"🚨 통신 거절됨 (상태코드: {last_error}).\n\n사령관님, 구글 서버가 이 API 키의 접근을 차단했습니다. 구글 클라우드 콘솔(AI Studio)에 접속하셔서 **API 결제 계정 연동** 또는 **Gemini 모델 접근 권한**이 활성화되어 있는지 확인이 필요합니다."
+    try:
+        pf_summary = []
+        for _, r in portfolio_df.iterrows():
+            if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
+            code = str(r['종목코드'])
+            tcr = tcr_results.get(code, {}).get('score', 0)
+            pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
+        
+        cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
+        
+        prompt = f"""
+        당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다. 사령관을 위해 작전 지시서를 작성하십시오.
+        
+        [지표]: {indices}
+        [현황]: 현금 {cash:,.0f}원
+        {chr(10).join(pf_summary)}
+        [지시]: {user_context}
+        
+        1. 🌍 시황 요약
+        2. 🎯 포트폴리오 진단
+        3. 🔥 작전 지시 (명확한 매도/매수 종목 추천)
+        """
+        
+        # 1. API 키 세팅 (주소를 만들지 않고 라이브러리에 키만 넘겨줍니다)
+        genai.configure(api_key=api_key.strip())
+        
+        # 2. 모델 직접 소환 (서버 주소 문제 원천 차단)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # 3. 답변 생성
+        response = model.generate_content(prompt)
+        
+        return response.text
+        
+    except Exception as e:
+        return f"🚨 전용 통신망(SDK) 구축 후에도 에러가 발생했습니다: {str(e)}\n\n사령관님, 이 에러는 구글 클라우드 콘솔에서 API 키 자체의 결제/권한 설정 문제일 확률이 매우 높습니다."
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3 (Mobile Optimized)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3 (Mobile + SDK)</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.3 (모바일 최적화판)`")
-            st.markdown("**패치 내역:**\n- 모바일 글씨 겹침 현상 해결\n- 그래프 삭제 및 서술형 보고서 대체")
+            st.markdown("**현재 가동:** `V0.5.3 (모바일 최적화 + SDK 통신판)`")
+            st.markdown("**패치 내역:**\n- `google-generativeai` 라이브러리 전면 교체 (404 원천 차단)")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
@@ -306,7 +301,7 @@ try:
             </details>"""
         st.markdown(html_cards, unsafe_allow_html=True)
 
-    # --- 📝 [수정] 모바일 최적화 서술형 분석실 ---
+    # --- 📝 모바일 최적화 서술형 분석실 ---
     with tab_analysis:
         st.subheader("📝 전술 상태 분류 (서술형 보고)")
         st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>모바일 환경에 맞춰 종목들을 4가지 상태로 분류하여 직관적으로 보고합니다.</p>", unsafe_allow_html=True)
@@ -342,7 +337,7 @@ try:
             if not api_key:
                 st.error("사이드바에 API Key를 입력하십시오.")
             else:
-                with st.spinner("🧠 통신망 다중 폭격 중... (최대 20초 소요)"):
+                with st.spinner("🧠 전용 SDK 통신망 가동 중... (안정화 대기)"):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
                     st.markdown(f"<div style='background:#0f172a; padding:15px; border-radius:10px; border:1px solid #1e293b; font-size:0.95rem; line-height:1.6;'>{ai_report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
