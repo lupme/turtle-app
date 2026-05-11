@@ -7,30 +7,36 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3 (Mobile)", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS ---
+# --- 📱 [수정] 모바일 반응형 CSS 추가 및 글자 겹침 방지 ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
     h1, h2, h3, p, span, div { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; }
     .hq-title { font-size: 1.3rem; color: rgb(70,130,180); font-weight: 800; padding-top: 5px; margin-bottom: 15px; }
+    
+    /* 지수 보드 */
     .index-container { display: flex; flex-wrap: wrap; justify-content: space-between; background: #0f172a; padding: 10px 15px; border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 15px; gap: 8px 0; }
     .index-item { display: flex; flex-direction: column; align-items: center; width: 24%; }
-    .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
-    /* 숫자 두께 800 -> 500 완화 */
-    .index-val { font-size: 1.05rem; font-weight: 500; color: #ffffff; }
-    .index-diff { font-size: 0.75rem; font-weight: 500; }
+    .index-name { font-size: 0.75rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 2px; }
+    .index-val { font-size: 1.05rem; font-weight: 800; color: #ffffff; }
+    .index-diff { font-size: 0.75rem; font-weight: 600; }
+    
+    /* KPI 박스 */
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-    .kpi-box { display: flex; flex-direction: column; }
-    .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 4px; }
-    /* KPI 숫자 두께 800 -> 600 완화 */
-    .kpi-val { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.5px; }
-    .kpi-delta { font-size: 0.85rem; font-weight: 500; margin-left: 6px; }
+    .kpi-box { display: flex; flex-direction: column; background: #0f172a; padding: 15px; border-radius: 10px; border: 1px solid #1e293b; }
+    .kpi-label { font-size: 0.8rem; color: rgb(108,122,137); font-weight: 700; margin-bottom: 4px; }
+    .kpi-val { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
+    .kpi-delta { font-size: 0.85rem; font-weight: 700; margin-left: 6px; }
+    
+    /* 텍스트 색상 */
     .text-blue { color: rgb(70,130,180) !important; }
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
     .text-white { color: #ffffff !important; }
+    
+    /* 종목 카드 */
     details.premium-card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; margin-bottom: 8px; transition: all 0.2s; }
     details.premium-card:hover { border-color: rgb(70,130,180); }
     details.premium-card summary { padding: 14px 16px; cursor: pointer; list-style: none; }
@@ -40,13 +46,22 @@ st.markdown("""
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .dot-red { background-color: #ef4444; } .dot-blue { background-color: rgb(70,130,180); } .dot-gray { background-color: rgb(108,122,137); }
-    /* 종목명 두께 700 -> 600 완화 */
-    .stock-name { font-size: 1rem; font-weight: 600; color: #ffffff; }
+    .stock-name { font-size: 1rem; font-weight: 700; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 600; margin-bottom: 2px; }
-    /* 현재가 등 숫자 두께 800 -> 500 완화 */
-    .val-num { font-size: 1rem; font-weight: 500; }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
+    .val-num { font-size: 1rem; font-weight: 800; }
+    
+    /* 📱 모바일 최적화 (화면이 좁아질 때 발동) */
+    @media (max-width: 768px) {
+        .index-item { width: 48%; margin-bottom: 10px; }
+        .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .card-header-flex { flex-direction: column; align-items: flex-start; }
+        .card-left { width: 100%; margin-bottom: 10px; }
+        .card-right { width: 100%; border-top: 1px dashed #1e293b; padding-top: 10px; }
+        .kpi-val { font-size: 1.2rem; }
+    }
+    
+    .stButton>button { width: 100%; border-radius: 8px; font-weight: 700; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
     .stButton>button:hover { border-color: rgb(70,130,180); color: rgb(70,130,180); }
     </style>
     """, unsafe_allow_html=True)
@@ -114,73 +129,57 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
+# --- 📡 [수정] 통신망 다중 폭격 로직 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
-    try:
-        pf_summary = []
-        for _, r in portfolio_df.iterrows():
-            if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
-            code = str(r['종목코드'])
-            tcr = tcr_results.get(code, {}).get('score', 0)
-            pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점, 비중금액 {r['평가금액']:,.0f}원")
-        
-        cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
-        
-        prompt = f"""
-        당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다. 사령관(사용자)을 위해 '최종 작전 지시서'를 작성하십시오.
-        말투는 군대식으로 명확하고 단호하게, 불필요한 서론 없이 즉시 본론만 출력하십시오.
-        
-        [현재 거시 경제 상황]
-        {indices}
-        
-        [사령관의 현재 함대(포트폴리오) 상태]
-        총 보유 현금(예수금): {cash:,.0f}원
-        보유 종목 현황:
-        {chr(10).join(pf_summary)}
-        *(참고: TCR확신율은 100점 만점이며, 75점 이상은 강력매수/유지, 40점 이하는 위험/매도 신호입니다)*
-        
-        [사령관의 특별 지시 및 추가 정보]
-        {user_context if user_context else "특이사항 없음"}
-        
-        아래 양식에 맞춰 정확히 브리핑하십시오:
-        1. 🌍 글로벌 전황 요약 (거시 경제와 유가/금리를 바탕으로 한 시장 방향성)
-        2. 🎯 포트폴리오 정밀 진단 (수익률과 TCR 점수를 비교하여 취약점과 강점 분석)
-        3. 🔥 최종 작전 지시 (가장 시급하게 매도해야 할 종목 1개, 물타기/매수해야 할 종목 1개, 현금 비중 조절 조언을 정확한 이유와 함께 명시)
-        """
-        
-        # [수정] 404 원인이던 '-latest' 제거, 타임아웃 60초로 대폭 연장
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        headers = {'Content-Type': 'application/json'}
-        data = {"contents": [{"parts": [{"text": prompt}]}]}
-        
-        response = requests.post(url, headers=headers, json=data, timeout=60)
-        response.raise_for_status()
-        
-        result_json = response.json()
-        if 'candidates' in result_json and len(result_json['candidates']) > 0:
-            return result_json['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return "AI 참모 통신 오류: 응답을 해석할 수 없습니다."
+    pf_summary = []
+    for _, r in portfolio_df.iterrows():
+        if "현금" in r['종목명'] or "예수금" in r['종목명']: continue
+        code = str(r['종목코드'])
+        tcr = tcr_results.get(code, {}).get('score', 0)
+        pf_summary.append(f"- {r['종목명']}: 수익률 {r['안전_수익률']*100:.1f}%, TCR확신율 {tcr}점")
+    
+    cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
+    
+    prompt = f"참모 브리핑 요망.\n[지표]: {indices}\n[현황]: 현금 {cash}원\n{chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍시황요약, 🎯진단, 🔥작전지시"
+    headers = {'Content-Type': 'application/json'}
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    # 404 에러를 뚫기 위해 3개의 다른 버전을 순차적으로 공격합니다.
+    endpoints = [
+        "v1/models/gemini-1.5-flash",
+        "v1beta/models/gemini-1.5-flash",
+        "v1beta/models/gemini-pro"
+    ]
+    
+    last_error = ""
+    for ep in endpoints:
+        url = f"https://generativelanguage.googleapis.com/{ep}:generateContent?key={api_key.strip()}"
+        try:
+            res = requests.post(url, headers=headers, json=data, timeout=20)
+            if res.status_code == 200:
+                return res.json()['candidates'][0]['content']['parts'][0]['text']
+            last_error = str(res.status_code)
+        except Exception as e:
+            last_error = str(e)
             
-    except requests.exceptions.Timeout:
-        return "AI 참모 통신 실패: 구글 서버 응답 지연 (Timeout). 잠시 후 다시 시도해 주십시오."
-    except Exception as e:
-        return f"AI 참모 통신 실패: API 키가 잘못되었거나 오류가 발생했습니다. ({e})"
+    # 모두 실패했다면, 이것은 코드 문제가 아니라 구글 API 키 권한 문제입니다.
+    return f"🚨 통신 거절됨 (상태코드: {last_error}).\n\n사령관님, 구글 서버가 이 API 키의 접근을 차단했습니다. 구글 클라우드 콘솔(AI Studio)에 접속하셔서 **API 결제 계정 연동** 또는 **Gemini 모델 접근 권한**이 활성화되어 있는지 확인이 필요합니다."
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3 (Mobile Optimized)</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
         with st.expander("🛠️ 함대 버전 관리 (VCS)", expanded=False):
-            st.markdown("**현재 가동:** `V0.5.3 (통신 연장 및 글씨체 완화판)`")
-            st.markdown("**패치 내역:**\n- Timeout 60초 연장\n- 증감 기호/숫자 색상 분리 및 두께 완화")
+            st.markdown("**현재 가동:** `V0.5.3 (모바일 최적화판)`")
+            st.markdown("**패치 내역:**\n- 모바일 글씨 겹침 현상 해결\n- 그래프 삭제 및 서술형 보고서 대체")
         st.divider()
         
         st.markdown("**🤖 AI 참모 통신 채널**")
-        api_key = st.text_input("Gemini API Key 입력 (1회용)", type="password", help="구글 AI 스튜디오에서 무료로 발급받은 키를 입력하세요.")
+        api_key = st.text_input("Gemini API Key 입력 (1회용)", type="password")
         st.divider()
         
         if st.button("🔄 실시간 시세 수동 업데이트"):
@@ -192,7 +191,6 @@ try:
         selected_type = st.selectbox("🗂️ 계좌 필터", ["함대 전체"] + list(df['계좌유형'].unique()))
         st.divider()
 
-        # 수동 입력 폼
         mode = st.radio("작전 모드", ["기존 종목 매매", "데이터 강제 수정", "신규 종목 추가", "종목 완전 삭제"])
         acc_opts = [f"{r['계좌유형']} [{r['계좌번호']}]" for _, r in full_df[['계좌유형', '계좌번호']].drop_duplicates().iterrows() if str(r['계좌번호']).strip() != '']
         sel_acc_str = st.selectbox("명령 하달 대상 계좌", acc_opts) if acc_opts else ""
@@ -211,8 +209,7 @@ try:
         if st.button("명령 확정 (Sync)"):
             st.cache_data.clear()
             st.success("동기화 완료.")
-            time.sleep(1)
-            st.rerun()
+            time.sleep(1); st.rerun()
         
     display_df = df[df['계좌유형'] == selected_type].copy() if selected_type != "함대 전체" else df.copy()
     display_df['안전_수익률'] = display_df.apply(lambda r: get_safe_val(r, ['수익률2', '수익률']), axis=1)
@@ -222,27 +219,22 @@ try:
     with st.spinner("🚀 T-Q 엔진 데이터 수집 중..."):
         tcr_results = quant_analyzer.get_tcr_scores_batch(stock_fetch_list, {"flow": 0.4, "trend": 0.4, "vcp": 0.2})
 
-    tab_main, tab_analysis, tab_ai = st.tabs(["🚀 기동 관제실", "🔬 심층 분석실", "🤖 AI 퀀터멘털 브리핑"])
+    tab_main, tab_analysis, tab_ai = st.tabs(["🚀 기동 관제실", "🔬 전술 분석실(서술형)", "🤖 AI 브리핑"])
 
     with tab_main:
         if indices:
             idx_html = '<div class="index-container">'
             for name in ["KOSPI", "NASDAQ", "S&P 500", "USD/KRW"]:
-                val, diff_str, cl = indices.get(name, ("-", "-", "text-gray"))
-                # [수정] 기호(색상)와 텍스트(흰색) 분리
-                tri = diff_str[0] if diff_str and diff_str[0] in ['▲', '▼'] else ''
-                rest = diff_str[1:] if tri else diff_str
-                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val text-white">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span class="text-white">{rest}</span></span></div>'
+                val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
+                idx_html += f'<div class="index-item"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
             idx_html += '</div>'
             st.markdown(idx_html, unsafe_allow_html=True)
             
             with st.expander("🌍 거시경제 및 보조 지표 (VIX, 유가, 미 국채)"):
                 macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
                 for name in ["VIX", "WTI (유가)", "US 10Y (미 국채)"]:
-                    val, diff_str, cl = indices.get(name, ("-", "-", "text-gray"))
-                    tri = diff_str[0] if diff_str and diff_str[0] in ['▲', '▼'] else ''
-                    rest = diff_str[1:] if tri else diff_str
-                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val text-white">{val}</span><span class="index-diff"><span class="{cl}">{tri}</span><span class="text-white">{rest}</span></span></div>'
+                    val, diff, cl = indices.get(name, ("-", "-", "text-gray"))
+                    macro_html += f'<div class="index-item" style="width:32%;"><span class="index-name">{name}</span><span class="index-val {cl}">{val}</span><span class="index-diff {cl}">{diff}</span></div>'
                 macro_html += '</div>'
                 st.markdown(macro_html, unsafe_allow_html=True)
 
@@ -252,18 +244,11 @@ try:
         daily_delta = sum((get_safe_val(r,['현재가2','현재가','기준가','매수단가']) - get_safe_val(r,['전일종가2','전일종가'])) * r.get('잔고수량',0) for _,r in display_df.iterrows() if get_safe_val(r,['전일종가2','전일종가']) > 0)
         total_cash = display_df[display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)]['평가금액'].sum()
 
-        # [수정] 기호(색상)와 텍스트(흰색) 분리
-        tri_profit = '▲' if total_profit > 0 else '▼' if total_profit < 0 else ''
-        cl_profit = 'text-red' if total_profit > 0 else 'text-blue' if total_profit < 0 else 'text-gray'
-        
-        tri_delta = '▲' if daily_delta > 0 else '▼' if daily_delta < 0 else ''
-        cl_delta = 'text-red' if daily_delta > 0 else 'text-blue' if daily_delta < 0 else 'text-gray'
-
         st.markdown(f"""<div class="kpi-grid">
-            <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}원</span></div>
-            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val"><span class="{cl_profit}">{tri_profit}</span><span class="text-white">{abs(total_profit):,.0f}원</span> <span class="kpi-delta text-white">({total_roi:.2f}%)</span></span></div>
-            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val"><span class="{cl_delta}">{tri_delta}</span><span class="text-white">{abs(daily_delta):,.0f}원</span></span></div>
-            <div class="kpi-box"><span class="kpi-label">기동 대기 예수금</span><span class="kpi-val text-white">{total_cash:,.0f}원</span></div>
+            <div class="kpi-box"><span class="kpi-label">총 함대 자산</span><span class="kpi-val text-white">{total_eval:,.0f}</span></div>
+            <div class="kpi-box"><span class="kpi-label">총 누적 손익</span><span class="kpi-val {'text-red' if total_profit>0 else 'text-blue'}">{total_profit:,.0f} <span class="kpi-delta">({total_roi:.2f}%)</span></span></div>
+            <div class="kpi-box"><span class="kpi-label">전일 대비 증감</span><span class="kpi-val {'text-red' if daily_delta>0 else 'text-blue'}">{'▲' if daily_delta>0 else '▼' if daily_delta<0 else ''}{abs(daily_delta):,.0f}</span></div>
+            <div class="kpi-box"><span class="kpi-label">기동 예수금</span><span class="kpi-val text-blue">{total_cash:,.0f}</span></div>
         </div>""", unsafe_allow_html=True)
 
         is_cash = display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)
@@ -292,71 +277,73 @@ try:
             rate = (diff / prev_p * 100) if prev_p > 0 else 0
             
             if "현금" in str(row['종목명']) or "예수금" in str(row['종목명']):
-                tcr_info = {"score": "-", "status": "안전 자산 대기", "color": "text-blue"}
+                tcr_info = {"score": "-", "status": "안전 자산", "color": "text-blue"}
             else:
-                tcr_info = tcr_results.get(code, {"score": 0, "status": "데이터 확인 불가", "color": "text-gray"})
+                tcr_info = tcr_results.get(code, {"score": 0, "status": "확인 불가", "color": "text-gray"})
             
-            # [수정] 기호(색상)와 텍스트(흰색) 분리
+            cl = "text-red" if y_val > 0 else "text-blue" if y_val < 0 else "text-gray"
             dt = "dot-red" if y_val > 0 else "dot-blue" if y_val < 0 else "dot-gray"
-            
-            diff_tri = '▲' if diff > 0 else '▼' if diff < 0 else ''
-            diff_cl = 'text-red' if diff > 0 else 'text-blue' if diff < 0 else 'text-gray'
-            ds = f"<span class='{diff_cl}'>{diff_tri}</span><span class='text-white'>{abs(diff):,.0f}({rate:.1f}%)</span>"
-            
-            y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
-            y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
-            ys = f"<span class='{y_cl}'>{y_tri}</span><span class='text-white'>{abs(y_val)*100 if -1<y_val<1 else abs(y_val)*100:.2f}%</span>"
+            ds = f"<span class='{'text-red' if diff>0 else 'text-blue' if diff<0 else 'text-gray'}'>{'▲' if diff>0 else '▼' if diff<0 else ''}{abs(diff):,.0f}({rate:.1f}%)</span>"
             
             html_cards += f"""
             <details class="premium-card">
                 <summary><div class="card-header-flex">
-                    <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name">{row['종목명']}</span></div>
+                    <div class="card-left"><div class="status-dot {dt}"></div><span class="stock-name" title="{row['종목명']}">{row['종목명']}</span></div>
                     <div class="card-right">
-                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num text-white">{now_p:,.0f}</span></div>
+                        <div class="val-box"><span class="val-label">현재가</span><span class="val-num {cl}">{now_p:,.0f}</span></div>
                         <div class="val-box"><span class="val-label">당일비</span><span class="val-num">{ds}</span></div>
-                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num">{ys}</span></div>
+                        <div class="val-box"><span class="val-label">수익률</span><span class="val-num {cl}">{y_val*100:.2f}%</span></div>
                     </div>
                 </div></summary>
                 <div class="card-body">
                     <div class="metric-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; background:#020617; padding:15px; border-radius:0 0 10px 10px; border-top:1px solid #1e293b;">
-                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">평가 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:600; color:rgb(70,130,180);">{row['평가금액']:,.0f}원</div></div>
-                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">🔥 확신율 (TCR)</div><div class="metric-value" style="font-size:1.05rem; font-weight:600; color:{tcr_info.get('color', 'text-gray')};">{tcr_info.get('score', 0)}% <span style='font-size:0.7rem;'>({tcr_info.get('status', '')})</span></div></div>
-                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:600; color:#ffffff;">{row['매수금액']:,.0f}원</div></div>
-                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">보유 수량</div><div class="metric-value" style="font-size:1.05rem; font-weight:600; color:#ffffff;">{row['잔고수량']:,.0f}주</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">평가 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:rgb(70,130,180);">{row['평가금액']:,.0f}</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">🔥 확신율 (TCR)</div><div class="metric-value" style="font-size:1.05rem; font-weight:700; color:{tcr_info.get('color', 'text-gray')};">{tcr_info.get('score', 0)}%</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">매수 금액</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['매수금액']:,.0f}</div></div>
+                        <div class="metric-box"><div class="metric-label" style="font-size:0.75rem; color:rgb(108,122,137);">보유 수량</div><div class="metric-value" style="font-size:1.05rem; font-weight:700;">{row['잔고수량']:,.0f}</div></div>
                     </div>
                 </div>
             </details>"""
         st.markdown(html_cards, unsafe_allow_html=True)
-        st.markdown(quant_analyzer.get_analysis_legend(), unsafe_allow_html=True)
 
+    # --- 📝 [수정] 모바일 최적화 서술형 분석실 ---
     with tab_analysis:
-        st.subheader("📊 1. 전술 사분면 (수익률 vs 확신율)")
-        plot_df = display_df[~display_df['종목명'].astype(str).str.contains('현금|예수금', na=False)].copy()
-        plot_df['TCR점수'] = plot_df['종목코드'].astype(str).apply(lambda c: tcr_results.get(c, {}).get('score', 0))
-        plot_df['표시수익률'] = plot_df['안전_수익률'] * 100
+        st.subheader("📝 전술 상태 분류 (서술형 보고)")
+        st.markdown("<p style='font-size:0.85rem; color:#94a3b8;'>모바일 환경에 맞춰 종목들을 4가지 상태로 분류하여 직관적으로 보고합니다.</p>", unsafe_allow_html=True)
         
-        base_chart = alt.Chart(plot_df).mark_circle().encode(
-            x=alt.X('TCR점수:Q', scale=alt.Scale(domain=[0, 100]), title='TCR 확신율 (0~100)'),
-            y=alt.Y('표시수익률:Q', title='현재 수익률 (%)'),
-            size=alt.Size('평가금액:Q', legend=None),
-            color=alt.Color('TCR점수:Q', scale=alt.Scale(scheme='redblue', domain=[0, 100]), legend=None),
-            tooltip=['종목명', 'TCR점수', '표시수익률', '평가금액']
-        ).interactive()
-        st.altair_chart(base_chart, use_container_width=True)
+        q1, q2, q3, q4 = [], [], [], []
+        for _, row in df_stock.iterrows():
+            code = str(row.get('종목코드', ''))
+            tcr = tcr_results.get(code, {}).get('score', 0)
+            ret = row['안전_수익률'] * 100
+            item = f"**{row['종목명']}** (수익: {ret:+.2f}% / TCR: {tcr}점)"
+            
+            if ret >= 0 and tcr >= 50: q1.append(item)
+            elif ret < 0 and tcr >= 50: q2.append(item)
+            elif ret >= 0 and tcr < 50: q3.append(item)
+            else: q4.append(item)
+            
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("### 🟢 [1사분면] 주력 홀딩")
+            st.info("수익 발생 & AI 확신율 높음\n\n" + ("\n".join([f"- {x}" for x in q1]) if q1 else "- 해당 종목 없음"))
+            st.markdown("### 🟡 [3사분면] 익절 경계")
+            st.warning("수익 발생 but AI 확신율 낮음\n\n" + ("\n".join([f"- {x}" for x in q3]) if q3 else "- 해당 종목 없음"))
+        with col2:
+            st.markdown("### 🔵 [2사분면] 물타기 대기")
+            st.info("손실 발생 but AI 확신율 높음\n\n" + ("\n".join([f"- {x}" for x in q2]) if q2 else "- 해당 종목 없음"))
+            st.markdown("### 🔴 [4사분면] 손절 고려")
+            st.error("손실 발생 & AI 확신율 낮음\n\n" + ("\n".join([f"- {x}" for x in q4]) if q4 else "- 해당 종목 없음"))
 
     with tab_ai:
-        st.subheader("🤖 제미나이 전술 참모 본부")
-        st.markdown("<p style='font-size:0.9rem; color:#94a3b8;'>현재 함대의 데이터(TCR)와 거시 경제 지표를 종합하여 최종 매매 지시서를 하달합니다.</p>", unsafe_allow_html=True)
-        
-        user_context = st.text_area("📡 사령관 특별 지시 및 추가 정보 입력", placeholder="예: 내일 미국 CPI 발표가 있는데 어떻게 대응할까? 삼성전자 실적 악재 뉴스가 떴어.", height=100)
-        
-        if st.button("🔥 AI 퀀터멘털 브리핑 생성", use_container_width=True):
+        st.subheader("🤖 제미나이 전술 참모")
+        user_context = st.text_area("📡 사령관 지시사항", placeholder="예: 삼성전자 악재 뉴스가 떴는데 비중을 줄일까?")
+        if st.button("🔥 작전 지시서 생성", use_container_width=True):
             if not api_key:
-                st.error("사이드바에 새로 발급받은 Gemini API Key를 입력해 주십시오.")
+                st.error("사이드바에 API Key를 입력하십시오.")
             else:
-                with st.spinner("🧠 퀀터멘털 데이터 종합 및 전술 생성 중... (최대 60초 소요)"):
+                with st.spinner("🧠 통신망 다중 폭격 중... (최대 20초 소요)"):
                     ai_report = generate_ai_briefing(api_key, display_df, tcr_results, indices, user_context)
-                    st.success("✅ 작전 지시서 수신 완료")
-                    st.markdown("""<div style="background-color:#0f172a; padding:20px; border-radius:10px; border:1px solid #1e293b; color:#f8fafc; font-size:1rem; line-height:1.6;">""" + ai_report.replace('\n', '<br>') + """</div>""", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background:#0f172a; padding:15px; border-radius:10px; border:1px solid #1e293b; font-size:0.95rem; line-height:1.6;'>{ai_report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
 except Exception as e: st.error(f"함대 기동 중지: {e}")
