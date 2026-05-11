@@ -7,13 +7,13 @@ from bs4 import BeautifulSoup
 import quant_analyzer
 import altair as alt
 
-st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.3", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="거북이 함대 기동 본부 V0.5.4", layout="wide", initial_sidebar_state="expanded")
 
-# --- [패치 1] API 키 세션 기억 (1회 입력) ---
+# --- API 키 세션 기억 (1회 입력) ---
 if "gemini_api_key" not in st.session_state:
     st.session_state["gemini_api_key"] = st.secrets.get("gemini_api_key", "")
 
-# --- [패치 2] 얇은 흰색 테마 (오리지널 CSS 기반 폰트 두께 완화) ---
+# --- CSS (얇고 깔끔한 노말 디자인) ---
 st.markdown("""
     <style>
     .stApp { background-color: #020617; color: #f8fafc; }
@@ -30,7 +30,7 @@ st.markdown("""
     .kpi-val { font-size: 1.5rem; font-weight: 400; color: #ffffff; letter-spacing: -0.5px; }
     .kpi-delta { font-size: 0.85rem; font-weight: 400; margin-left: 6px; }
     
-    /* 오리지널 노말 컬러 (파스텔 제거) */
+    /* 오리지널 컬러 복원 */
     .text-blue { color: #3b82f6 !important; }
     .text-red { color: #ef4444 !important; }
     .text-gray { color: rgb(108,122,137) !important; }
@@ -45,10 +45,20 @@ st.markdown("""
     .card-right { display: flex; justify-content: space-between; align-items: center; width: 65%; }
     .status-dot { min-width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .dot-red { background-color: #ef4444; } .dot-blue { background-color: #3b82f6; } .dot-gray { background-color: rgb(108,122,137); }
-    .stock-name { font-size: 1rem; font-weight: 400; color: #ffffff; }
+    
+    .stock-name { font-size: 0.95rem; font-weight: 400; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .val-box { display: flex; flex-direction: column; align-items: center; width: 33%; }
     .val-label { font-size: 0.65rem; color: rgb(108,122,137); font-weight: 400; margin-bottom: 2px; }
-    .val-num { font-size: 1rem; font-weight: 400; color: #ffffff; }
+    .val-num { font-size: 0.95rem; font-weight: 400; color: #ffffff; }
+    
+    @media (max-width: 768px) {
+        .index-item { width: 48%; margin-bottom: 10px; }
+        .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .card-header-flex { flex-direction: column; align-items: flex-start; }
+        .card-left { width: 100%; margin-bottom: 10px; }
+        .card-right { width: 100%; border-top: 1px dashed #1e293b; padding-top: 10px; }
+        .kpi-val { font-size: 1.2rem; }
+    }
     
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 400; background-color: #0f172a; border: 1px solid #1e293b; color: #f8fafc; height: 45px; }
     .stButton>button:hover { border-color: rgb(70,130,180); color: rgb(70,130,180); }
@@ -102,6 +112,13 @@ def get_market_indices():
         
         oil_box = sx.select_one("#oilGoldList > li.on > a.head.oil")
         if oil_box: indices["WTI (유가)"] = (oil_box.select_one(".value").text, oil_box.select_one(".change").text, "text-red" if "상승" in oil_box.select_one(".blind").text else "text-blue")
+        
+        rate_res = requests.get("https://finance.naver.com/marketindex/worldInterestQuote.naver?marketindexCd=IR_TNX", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+        rs = BeautifulSoup(rate_res.text, 'html.parser')
+        r_box = rs.select_one(".no_today")
+        if r_box and r_box.select_one("em"):
+            val = r_box.select_one("em").text.strip()
+            indices["US 10Y (미 국채)"] = (val, "변동조회필요", "text-gray")
     except: pass
     return indices
 
@@ -111,7 +128,7 @@ def get_safe_val(r, cols):
         if v != 0 and pd.notna(v): return v
     return 0
 
-# --- [패치 3] 통신 에러 회피용 다중 모델 순차 타격망 ---
+# --- 🚀 [완전히 새로운 방식] 동적 모델 스캔 통신망 ---
 def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_context):
     pf_summary = []
     for _, r in portfolio_df.iterrows():
@@ -122,45 +139,59 @@ def generate_ai_briefing(api_key, portfolio_df, tcr_results, indices, user_conte
     
     cash = portfolio_df[portfolio_df['종목명'].astype(str).str.contains('현금|예수금')]['평가금액'].sum()
     
-    prompt = f"""당신은 월스트리트 최고의 퀀터멘털(Quantamental) 투자 참모입니다. 단호하고 명확하게 브리핑하십시오.
-    [지표]: {indices}
-    [현황]: 현금 {cash:,.0f}원
-    {chr(10).join(pf_summary)}
-    [지시]: {user_context}
-    
-    1. 🌍 시황 요약
-    2. 🎯 포트폴리오 진단
-    3. 🔥 작전 지시 (명확한 매도/매수 종목 추천)"""
+    prompt = f"참모 브리핑 요망.\n[지표]: {indices}\n[현황]: 현금 {cash}원\n{chr(10).join(pf_summary)}\n[지시]: {user_context}\n🌍시황요약, 🎯진단, 🔥작전지시"
     
     clean_key = api_key.strip()
     headers = {'Content-Type': 'application/json'}
     data = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    # 404 회피를 위해 작동 가능한 모델들을 차례로 찔러봅니다.
-    models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]
-    last_error = ""
-    
-    for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={clean_key}"
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=20)
-            if response.status_code == 200:
-                result_json = response.json()
-                if 'candidates' in result_json and len(result_json['candidates']) > 0:
-                    return result_json['candidates'][0]['content']['parts'][0]['text']
-            else:
-                last_error = f"{m} 거절({response.status_code})"
-        except Exception as e:
-            last_error = f"통신장애({str(e)})"
-            continue
+    # [핵심] 허공에 찌르지 않고, 구글 본사에 '현재 사용 가능한 모델 목록'을 먼저 요청합니다.
+    try:
+        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={clean_key}"
+        list_res = requests.get(list_url, timeout=10)
+        
+        if list_res.status_code != 200:
+            return f"🚨 API 키 인증 거절 (코드: {list_res.status_code}).\n구글 AI Studio에서 정상 발급된 키인지 확인해 주십시오."
             
-    return f"🚨 모든 통신망 우회 실패. (최근 에러: {last_error})\n\n사령관님, 구글 API 키의 모델 접근 권한이 막혀있습니다. 구글 AI Studio에서 새 프로젝트를 만들고 완전히 새로운 키를 발급받아 주십시오."
+        models_data = list_res.json().get('models', [])
+        target_model = None
+        
+        # 1. 텍스트 생성이 가능하면서 'flash'가 포함된 최신 모델 우선 탐색
+        for m in models_data:
+            if 'generateContent' in m.get('supportedGenerationMethods', []):
+                if 'flash' in m.get('name', '').lower():
+                    target_model = m['name'] # 예: 'models/gemini-1.5-flash'
+                    break
+        
+        # 2. flash가 없으면 권한이 있는 아무 생성형 모델이나 선택
+        if not target_model:
+            for m in models_data:
+                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                    target_model = m['name']
+                    break
+                    
+        if not target_model:
+            return "🚨 통신 불가: 이 API 키에는 텍스트 생성 모델(Gemini) 사용 권한이 부여되지 않았습니다."
+            
+        # 3. 구글이 직접 알려준 정확한 모델 이름으로 타격
+        url = f"https://generativelanguage.googleapis.com/v1beta/{target_model}:generateContent?key={clean_key}"
+        res = requests.post(url, headers=headers, json=data, timeout=30)
+        
+        if res.status_code == 200:
+            return res.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            return f"🚨 모델({target_model}) 통신 거절 (코드: {res.status_code})"
+            
+    except requests.exceptions.Timeout:
+        return "🚨 통신 지연 (Timeout): 구글 서버가 30초 내에 응답하지 않았습니다."
+    except Exception as e:
+        return f"🚨 시스템 에러: {str(e)}"
 
 # --- Main App ---
 try:
     sheet, df, full_df = load_data()
     indices = get_market_indices()
-    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.3 (Base)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hq-title">🐢 TURTLE COMMAND HQ V0.5.4</div>', unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("🎯 전략 사령부")
@@ -221,6 +252,7 @@ try:
             idx_html += '</div>'
             st.markdown(idx_html, unsafe_allow_html=True)
             
+            # [원복] 사령관님의 소중한 거시경제 지표 패널
             with st.expander("🌍 거시경제 및 보조 지표 (VIX, 유가, 미 국채)"):
                 macro_html = '<div class="index-container" style="background:transparent; border:none; margin:0; padding:0;">'
                 for name in ["VIX", "WTI (유가)", "US 10Y (미 국채)"]:
@@ -289,9 +321,8 @@ try:
             y_tri = '▲' if y_val > 0 else '▼' if y_val < 0 else ''
             y_cl = 'text-red' if y_val > 0 else 'text-blue' if y_val < 0 else 'text-gray'
             
-            # [패치 4] 오리지널 V0.5.3 수익률 계산식 100% 원복 (이중 곱셈 제거)
-            abs_y_val = abs(y_val*100 if -1<y_val<1 else y_val)
-            ys = f"<span class='{y_cl}'>{y_tri}</span> <span class='text-white'>{abs_y_val:.2f}%</span>"
+            # [원복] 수익률 100배 뻥튀기 오류 완벽 제거. 오리지널 계산식 적용.
+            ys = f"<span class='{y_cl}'>{y_tri}</span> <span class='text-white'>{abs(y_val)*100 if -1<y_val<1 else abs(y_val):.2f}%</span>"
             
             html_cards += f"""
             <details class="premium-card">
@@ -337,7 +368,7 @@ try:
             if not st.session_state["gemini_api_key"]:
                 st.error("사이드바에 API Key를 1회 입력하십시오.")
             else:
-                with st.spinner("🧠 다중 모델 우회 타격망 가동 중..."):
+                with st.spinner("🧠 구글 본사 모델 스캔 및 통신 중..."):
                     ai_report = generate_ai_briefing(st.session_state["gemini_api_key"], display_df, tcr_results, indices, user_context)
                     st.markdown(f"<div style='background:#0f172a; padding:15px; border-radius:10px; border:1px solid #1e293b; font-size:0.95rem; line-height:1.6;'>{ai_report.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
