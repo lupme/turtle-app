@@ -10,3 +10,4 @@ pandas
 yfinance
 gspread
 google-auth
+google-generativeai
